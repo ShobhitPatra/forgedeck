@@ -1,0 +1,22 @@
+# Local planning artifacts — never committed (see CLAUDE.md)
+docs/
+
+# Dependencies & build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Logs & scratch
+*.log
+scratch/
