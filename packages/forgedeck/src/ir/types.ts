@@ -23,7 +23,17 @@ export interface ActionIR {
   enabled: boolean
   confidence: 'static'
   auth: AuthRequirement
+  // Business preconditions a caller must satisfy, sourced from `@agent precondition`
+  // tags on the handler/action declaration. Empty when the human channel is silent.
+  preconditions: string[]
   evidence: string[]
+}
+// A named cross-call sequence assembled from `@agent workflow <name> step <n>` tags.
+// `requires` is OMITTED when the tag carried no `requires` clause (matches the
+// reader's WorkflowStep shape).
+export interface WorkflowIR {
+  name: string
+  steps: { step: number; action: string; requires?: string }[]
 }
 export interface EntityIR {
   name: string
@@ -39,6 +49,7 @@ export interface SemanticIR {
   app: { name: string; framework: Framework }
   entities: EntityIR[]
   actions: ActionIR[]
+  workflows: WorkflowIR[]
   coverage: { extracted: number; skipped: CoverageItem[] }
 }
 
@@ -64,6 +75,7 @@ const action = z
     enabled: z.boolean(),
     confidence: z.literal('static'),
     auth: z.enum(['none', 'required', 'unknown']),
+    preconditions: z.array(z.string()).default([]),
     evidence: z.array(z.string()),
   })
   .refine((a) => a.effect === 'read' || a.enabled === false, {
@@ -75,6 +87,13 @@ const entity = z.object({
   fields: z.array(z.object({ name: z.string(), type: z.string(), optional: z.boolean() })),
   relations: z.array(z.object({ field: z.string(), target: z.string() })),
   sourceFile: z.string(),
+})
+
+const workflow = z.object({
+  name: z.string(),
+  steps: z.array(
+    z.object({ step: z.number(), action: z.string(), requires: z.string().optional() }),
+  ),
 })
 
 export const semanticIRSchema = z.object({
@@ -92,6 +111,7 @@ export const semanticIRSchema = z.object({
       seen.add(a.name)
     }
   }),
+  workflows: z.array(workflow).default([]),
   coverage: z.object({
     extracted: z.number(),
     skipped: z.array(z.object({ file: z.string(), reason: z.string() })),

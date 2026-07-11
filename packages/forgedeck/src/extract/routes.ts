@@ -1,4 +1,4 @@
-import { Node, type SourceFile } from 'ts-morph'
+import { Node, type SourceFile, type JSDocableNode } from 'ts-morph'
 import type { ActionIR, CoverageItem, InputField } from '../ir/types.js'
 import type { LoadedProject } from '../load/project.js'
 import { routePathFromFile, routeToName, paramsFromPath } from '../ir/names.js'
@@ -13,13 +13,15 @@ import {
   type Matcher,
 } from './auth.js'
 import { asFnLike, handlerFromWrapperArg } from './unwrap.js'
+import { readAgentDoc } from './jsdoc.js'
+import { applyAgentDoc, type WorkflowBinding } from './annotate.js'
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
 // A resolved method export: its handler body text, an optional wrapper name (for
 // auth) and any wrapper evidence; or a wrapper whose handler stayed opaque.
 type MethodResolution =
-  | { kind: 'body'; body: string; wrapper?: string; evidence: string[] }
+  | { kind: 'body'; body: string; wrapper?: string; evidence: string[]; docNode: JSDocableNode }
   | { kind: 'unresolved'; wrapper: string }
   | undefined
 
@@ -40,15 +42,18 @@ interface ReExport {
 // exported name so it serves both local methods and re-export targets.
 function resolveDeclaration(sf: SourceFile, name: string): MethodResolution {
   const fn = sf.getFunction(name)
-  if (fn?.isExported()) return { kind: 'body', body: fn.getBodyText() ?? '', evidence: [] }
+  if (fn?.isExported())
+    return { kind: 'body', body: fn.getBodyText() ?? '', evidence: [], docNode: fn }
 
   const vd = sf.getVariableDeclaration(name)
   if (!vd?.isExported()) return undefined
+  // JSDoc on a `const` handler sits on the VariableStatement, not the declaration.
+  const docNode: JSDocableNode = vd.getVariableStatementOrThrow()
   const init = vd.getInitializer()
   if (!init) return undefined
 
   const inline = asFnLike(init)
-  if (inline) return { kind: 'body', body: inline.getText(), evidence: [] }
+  if (inline) return { kind: 'body', body: inline.getText(), evidence: [], docNode }
 
   if (Node.isCallExpression(init)) {
     const wrapper = init.getExpression().getText()
@@ -60,6 +65,7 @@ function resolveDeclaration(sf: SourceFile, name: string): MethodResolution {
         body: handler.getText(),
         wrapper,
         evidence: [`handler via wrapper ${wrapper}`],
+        docNode,
       }
     return { kind: 'unresolved', wrapper }
   }
@@ -118,9 +124,11 @@ export function extractRoutes(
 ): {
   actions: ActionIR[]
   skipped: CoverageItem[]
+  workflowBindings: WorkflowBinding[]
 } {
   const actions: ActionIR[] = []
   const skipped: CoverageItem[] = []
+  const workflowBindings: WorkflowBinding[] = []
 
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
@@ -177,7 +185,7 @@ export function extractRoutes(
       const handlerAuth = idiomAuth.auth === 'required' ? idiomAuth : wrapperAuth
       const { auth, evidence: authEvidence } = resolveAuth(handlerAuth, path, matchers)
 
-      actions.push({
+      const action: ActionIR = {
         name: routeToName(method, path),
         kind: 'route',
         method,
@@ -191,12 +199,24 @@ export function extractRoutes(
         enabled: effect === 'read',
         confidence: 'static',
         auth,
+        preconditions: [],
         evidence: [...reEvidence, ...wrapperEvidence, ...evidence, ...authEvidence],
-      })
+      }
+
+      // A route method is a single-action declaration: act-specific tags apply.
+      const doc = readAgentDoc(resolved.docNode)
+      if (doc.ignore) {
+        skipped.push({ file: rel, reason: 'excluded by @agent ignore' })
+        continue
+      }
+      const applied = applyAgentDoc(action, doc, { file: rel, actSpecific: true })
+      skipped.push(...applied.warnings)
+      workflowBindings.push(...applied.workflowBindings)
+      actions.push(action)
     }
     if (found === 0 && reExports.skipped.length === 0) {
       skipped.push({ file: rel, reason: 'no http method exports found' })
     }
   }
-  return { actions, skipped }
+  return { actions, skipped, workflowBindings }
 }
