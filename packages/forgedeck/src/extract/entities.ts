@@ -1,6 +1,26 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, relative } from 'node:path'
 import type { CoverageItem, EntityIR } from '../ir/types.js'
+
+// Modern Prisma projects (formbricks-style) declare the schema location in a
+// prisma.config.(mjs|js|ts) instead of a conventional path. We honor it with a
+// STATIC text read only — never executing the config — extracting the first
+// `schema: '<path>'` literal and resolving it relative to the config file's
+// dir. When the resolved file or dir exists it WINS for that package. Returns
+// the schema path relative to baseDir (so collect() reads it and sourceFile
+// stays baseDir-relative), or undefined when no usable declaration is found.
+function configSchemaRel(baseDir: string, pkgDir: string): string | undefined {
+  for (const name of ['prisma.config.mjs', 'prisma.config.js', 'prisma.config.ts']) {
+    const configPath = join(pkgDir, name)
+    if (!existsSync(configPath)) continue
+    const match = readFileSync(configPath, 'utf8').match(/schema\s*:\s*['"]([^'"]+)['"]/)
+    if (!match) continue
+    const schemaAbs = resolve(pkgDir, match[1])
+    if (!existsSync(schemaAbs)) continue
+    return relative(baseDir, schemaAbs)
+  }
+  return undefined
+}
 
 function localSchemaSources(projectDir: string): { text: string; rel: string }[] {
   const pkgPath = join(projectDir, 'package.json')
@@ -50,10 +70,17 @@ function workspaceSchemaSources(projectDir: string): { text: string; rel: string
         .map((e) => e.name)
         .sort()
       for (const pkg of pkgs) {
-        const rel = `packages/${pkg}/prisma/schema.prisma`
-        const relDir = `packages/${pkg}/prisma/schema`
-        if (existsSync(join(dir, rel))) return collect(dir, rel)
-        if (existsSync(join(dir, relDir))) return collect(dir, relDir)
+        const pkgDir = join(dir, 'packages', pkg)
+        const declared = configSchemaRel(dir, pkgDir)
+        if (declared) return collect(dir, declared)
+        const candidates = [
+          `packages/${pkg}/prisma/schema.prisma`,
+          `packages/${pkg}/prisma/schema`,
+          `packages/${pkg}/schema.prisma`,
+        ]
+        for (const rel of candidates) {
+          if (existsSync(join(dir, rel))) return collect(dir, rel)
+        }
       }
       return []
     }
@@ -117,6 +144,13 @@ export function extractEntitiesWithSource(projectDir: string): {
 } {
   const local = localSchemaSources(projectDir)
   if (local.length > 0) return { entities: parseEntities(local) }
+
+  // A non-monorepo app may declare its schema via prisma.config at its own
+  // root; honor that before falling through to the workspace walk. This stays
+  // local (no workspace note) since nothing was resolved by walking up.
+  const ownRoot = resolve(projectDir)
+  const declared = configSchemaRel(ownRoot, ownRoot)
+  if (declared) return { entities: parseEntities(collect(ownRoot, declared)) }
 
   const workspace = workspaceSchemaSources(projectDir)
   if (workspace.length === 0) return { entities: [] }

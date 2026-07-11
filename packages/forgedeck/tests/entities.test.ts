@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { extractEntities, extractEntitiesWithSource } from '../src/extract/entities'
 
 const FIXTURE = 'tests/fixtures/mini-shop'
@@ -40,5 +43,60 @@ describe('extractEntities', () => {
     })
     const local = extractEntitiesWithSource('tests/fixtures/hybrid-shop')
     expect(local.workspaceNote).toBeUndefined()
+  })
+  it('resolves a flat packages/*/schema.prisma from a workspace package', () => {
+    const entities = extractEntities('tests/fixtures/flatdb-shop/apps/web')
+    expect(entities.map((e) => e.name)).toEqual(['Gadget'])
+    const gadget = entities[0]
+    expect(gadget.fields.map((f) => f.name)).toEqual(['id', 'name'])
+    expect(gadget.sourceFile).toBe('packages/database/schema.prisma')
+  })
+  it('emits the workspace note for a flat schema resolved by walking up', () => {
+    const walked = extractEntitiesWithSource('tests/fixtures/flatdb-shop/apps/web')
+    expect(walked.workspaceNote).toEqual({
+      file: 'packages/database/schema.prisma',
+      reason: 'entities resolved from workspace package',
+    })
+  })
+  it('honors a prisma.config schema literal at the project root pointing at a nonstandard path', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fd-cfg-own-'))
+    try {
+      mkdirSync(join(root, 'db'), { recursive: true })
+      writeFileSync(
+        join(root, 'prisma.config.ts'),
+        "export default { schema: './db/main.prisma' }\n",
+      )
+      writeFileSync(join(root, 'db', 'main.prisma'), 'model Thing {\n  id String @id\n}\n')
+      const entities = extractEntities(root)
+      expect(entities.map((e) => e.name)).toEqual(['Thing'])
+      expect(entities[0].sourceFile).toBe('db/main.prisma')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it('honors a prisma.config schema literal in a workspace package the glob order would miss', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fd-cfg-ws-'))
+    try {
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n")
+      mkdirSync(join(root, 'packages', 'db', 'config'), { recursive: true })
+      writeFileSync(
+        join(root, 'packages', 'db', 'prisma.config.mjs'),
+        "export default { schema: './config/main.prisma' }\n",
+      )
+      writeFileSync(
+        join(root, 'packages', 'db', 'config', 'main.prisma'),
+        'model Thing {\n  id String @id\n}\n',
+      )
+      mkdirSync(join(root, 'apps', 'web'), { recursive: true })
+      const walked = extractEntitiesWithSource(join(root, 'apps', 'web'))
+      expect(walked.entities.map((e) => e.name)).toEqual(['Thing'])
+      expect(walked.entities[0].sourceFile).toBe('packages/db/config/main.prisma')
+      expect(walked.workspaceNote).toEqual({
+        file: 'packages/db/config/main.prisma',
+        reason: 'entities resolved from workspace package',
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
