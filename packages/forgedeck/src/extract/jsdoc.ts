@@ -79,6 +79,23 @@ function firstParagraph(description: string): string | undefined {
 // declaration has several JSDoc blocks the LAST one wins (it is the block that sits
 // immediately above the declaration). A declaration with no JSDoc yields an empty
 // AgentDoc: no tags, no summary, nothing malformed.
+// True when a declaration's JSDoc carries ANY human signal — a harvested summary or
+// an `@agent` tag of any kind, including a malformed one. Used to decide whether a
+// human deliberately annotated an otherwise auto-excluded route (e.g. auth plumbing):
+// human facts win over the heuristic, so an annotated plumbing route is surfaced.
+export function hasAgentAnnotations(doc: AgentDoc): boolean {
+  return (
+    doc.summary !== undefined ||
+    doc.description !== undefined ||
+    doc.effect !== undefined ||
+    doc.auth !== undefined ||
+    doc.ignore ||
+    doc.preconditions.length > 0 ||
+    doc.workflowSteps.length > 0 ||
+    doc.malformed.length > 0
+  )
+}
+
 export function readAgentDoc(node: JSDocableNode): AgentDoc {
   const doc: AgentDoc = {
     preconditions: [],

@@ -201,6 +201,80 @@ describe('buildToolHandlers — bridge dispatch for server actions', () => {
   })
 })
 
+describe('buildToolHandlers — dispatch honesty on upstream failures', () => {
+  const savedToken = process.env.FORGEDECK_BRIDGE_TOKEN
+  afterEach(() => {
+    if (savedToken === undefined) delete process.env.FORGEDECK_BRIDGE_TOKEN
+    else process.env.FORGEDECK_BRIDGE_TOKEN = savedToken
+  })
+
+  const bridgeManifest: ToolsManifest = {
+    app: 'hybrid-shop',
+    tools: [
+      {
+        name: 'delete_survey',
+        description: 'server action deleteSurvey',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        kind: 'server-action',
+        effect: 'irreversible',
+        enabled: true,
+      },
+    ],
+  }
+
+  it('surfaces a 404 with empty body as a bare HTTP error string', async () => {
+    const fetchMock = vi.fn(async () => new Response('', { status: 404, statusText: 'Not Found' }))
+    const handlers = buildToolHandlers(
+      manifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+    )
+    const out = await handlers.get('get_products')!.run({})
+    expect(out).toBe('HTTP 404 Not Found')
+  })
+
+  it('surfaces a 500 including the upstream body text', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('boom: db offline', { status: 500, statusText: 'Internal Server Error' }),
+    )
+    const handlers = buildToolHandlers(
+      manifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+    )
+    const out = await handlers.get('get_products')!.run({})
+    expect(out).toContain('HTTP 500 Internal Server Error')
+    expect(out).toContain('boom: db offline')
+  })
+
+  it('passes a 2xx body through unchanged', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }))
+    const handlers = buildToolHandlers(
+      manifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+    )
+    const out = await handlers.get('get_products')!.run({})
+    expect(out).toBe('{"ok":true}')
+  })
+
+  it('surfaces upstream failure on the server-action bridge path too', async () => {
+    process.env.FORGEDECK_BRIDGE_TOKEN = 'secret-token'
+    const fetchMock = vi.fn(
+      async () => new Response('nope', { status: 403, statusText: 'Forbidden' }),
+    )
+    const handlers = buildToolHandlers(
+      bridgeManifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+    )
+    const out = await handlers.get('delete_survey')!.run({ id: 's1' })
+    expect(out).toContain('HTTP 403 Forbidden')
+    expect(out).toContain('nope')
+  })
+})
+
 describe('parseTargetHeaders', () => {
   it('returns undefined for undefined input', () => {
     expect(parseTargetHeaders(undefined)).toBeUndefined()

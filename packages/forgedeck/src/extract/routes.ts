@@ -13,7 +13,7 @@ import {
   type Matcher,
 } from './auth.js'
 import { asFnLike, handlerFromWrapperArg } from './unwrap.js'
-import { readAgentDoc } from './jsdoc.js'
+import { readAgentDoc, hasAgentAnnotations } from './jsdoc.js'
 import { applyAgentDoc, type WorkflowBinding } from './annotate.js'
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
@@ -118,6 +118,19 @@ function collectReExports(
   return { map, skipped }
 }
 
+// A plumbing route (`app/api/auth/[...nextauth]/route.ts`) is auto-excluded UNLESS a
+// human annotated it: scan every resolvable method declaration (local or re-exported)
+// for any @agent tag or JSDoc summary. One annotated method surfaces the route.
+function routeIsAnnotated(sf: SourceFile, loaded: LoadedProject): boolean {
+  const reExports = collectReExports(sf, loaded).map
+  for (const method of HTTP_METHODS) {
+    const resolved = resolveDeclaration(sf, method) ?? reExports.get(method)?.resolution
+    if (resolved?.kind === 'body' && hasAgentAnnotations(readAgentDoc(resolved.docNode)))
+      return true
+  }
+  return false
+}
+
 export function extractRoutes(
   loaded: LoadedProject,
   matchers: Matcher[] = [],
@@ -133,7 +146,10 @@ export function extractRoutes(
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
     if (!/(^|\/)route\.tsx?$/.test(rel)) continue
-    if (isAuthPlumbingRoute(rel)) {
+    // Auth plumbing is excluded only while un-annotated; an @agent tag or JSDoc
+    // summary on any method is a human decision to surface it (human facts win).
+    const plumbing = isAuthPlumbingRoute(rel)
+    if (plumbing && !routeIsAnnotated(sf, loaded)) {
       skipped.push({ file: rel, reason: 'auth plumbing route, excluded' })
       continue
     }
@@ -201,7 +217,13 @@ export function extractRoutes(
         confidence: 'static',
         auth,
         preconditions: [],
-        evidence: [...reEvidence, ...wrapperEvidence, ...evidence, ...authEvidence],
+        evidence: [
+          ...reEvidence,
+          ...wrapperEvidence,
+          ...evidence,
+          ...authEvidence,
+          ...(plumbing ? ['auth plumbing exclusion overridden by annotations'] : []),
+        ],
       }
 
       // A route method is a single-action declaration: act-specific tags apply.

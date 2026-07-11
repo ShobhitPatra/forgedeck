@@ -259,3 +259,38 @@ describe('extractRoutes path params', () => {
     })
   })
 })
+
+describe('extractRoutes — auth-plumbing exclusion is annotation-aware', () => {
+  const plumbingFile = '/app/api/auth/[...nextauth]/route.ts'
+
+  it('still excludes an un-annotated catch-all auth route', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({ [plumbingFile]: `export function GET() { return Response.json(null) }` }),
+    )
+    expect(actions).toEqual([])
+    expect(skipped).toContainEqual({
+      file: 'app/api/auth/[...nextauth]/route.ts',
+      reason: 'auth plumbing route, excluded',
+    })
+  })
+
+  it('extracts an annotated catch-all auth route with override evidence', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        [plumbingFile]: `
+          /**
+           * @agent description begin the oauth handshake
+           */
+          export function GET() { return Response.json(null) }
+        `,
+      }),
+    )
+    expect(actions.length).toBe(1)
+    expect(actions[0].evidence).toContain('auth plumbing exclusion overridden by annotations')
+    expect(actions[0].description).toBe('begin the oauth handshake')
+    expect(skipped).not.toContainEqual({
+      file: 'app/api/auth/[...nextauth]/route.ts',
+      reason: 'auth plumbing route, excluded',
+    })
+  })
+})
