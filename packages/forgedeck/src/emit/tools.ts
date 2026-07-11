@@ -8,6 +8,7 @@ export interface ToolDef {
   method?: string
   path?: string
   effect: string
+  auth: string
   enabled: boolean
 }
 export interface ToolsManifest {
@@ -32,6 +33,7 @@ export function toToolsManifest(ir: SemanticIR): ToolsManifest {
       ...(a.method ? { method: a.method } : {}),
       ...(a.path ? { path: a.path } : {}),
       effect: a.effect,
+      auth: a.auth,
       enabled: a.enabled,
     })),
   }

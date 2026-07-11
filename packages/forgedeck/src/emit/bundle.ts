@@ -14,10 +14,14 @@ function actionMd(a: ActionIR): string {
   const inputs = a.inputs.length
     ? a.inputs.map((i) => `- \`${i.name}\` (${i.type}${i.required ? '' : ', optional'})`).join('\n')
     : '_none detected_'
+  const evidence = a.evidence.length
+    ? `\n## Evidence\n\n${a.evidence.map((e) => `- ${e}`).join('\n')}\n`
+    : ''
   return `---
 name: ${a.name}
 kind: ${a.kind}${a.method ? `\nmethod: ${a.method}` : ''}${a.path ? `\npath: ${a.path}` : ''}
 effect: ${a.effect}
+auth: ${a.auth}
 enabled: ${a.enabled}
 confidence: ${a.confidence}
 source: ${a.sourceFile}
@@ -34,7 +38,7 @@ ${inputs}
 ## Touches
 
 ${a.entitiesTouched.length ? a.entitiesTouched.map((e) => `- ${e}`).join('\n') : '_none detected_'}
-`
+${evidence}`
 }
 
 function entityMd(e: EntityIR): string {

@@ -45,3 +45,22 @@ describe('emitBundle', () => {
     expect(report).toContain('0 skipped')
   })
 })
+
+describe('emitBundle auth and evidence (hybrid-shop)', () => {
+  const out = mkdtempSync(join(tmpdir(), 'forgedeck-hs-'))
+  const ir = compile('tests/fixtures/hybrid-shop')
+  beforeAll(() => {
+    emitBundle(ir, out)
+  })
+
+  it('put_settings markdown carries auth frontmatter and an Evidence section', () => {
+    const md = readFileSync(join(out, 'actions/put_settings.md'), 'utf8')
+    expect(md).toContain('auth: required')
+    expect(md).toContain('## Evidence')
+  })
+
+  it('coverage renders an auth histogram line', () => {
+    const report = renderCoverage(ir)
+    expect(report).toMatch(/auth: \d+ required, \d+ unknown, \d+ none/)
+  })
+})
