@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export type Effect = 'read' | 'write' | 'irreversible'
+export type AuthRequirement = 'none' | 'required' | 'unknown'
 export type Framework = 'nextjs-app-router' | 'nextjs-pages-router' | 'nextjs-hybrid'
 export interface InputField {
   name: string
@@ -21,6 +22,8 @@ export interface ActionIR {
   entitiesTouched: string[]
   enabled: boolean
   confidence: 'static'
+  auth: AuthRequirement
+  evidence: string[]
 }
 export interface EntityIR {
   name: string
@@ -60,6 +63,8 @@ const action = z
     entitiesTouched: z.array(z.string()),
     enabled: z.boolean(),
     confidence: z.literal('static'),
+    auth: z.enum(['none', 'required', 'unknown']),
+    evidence: z.array(z.string()),
   })
   .refine((a) => a.effect === 'read' || a.enabled === false, {
     message: 'non read actions must be disabled (safety default)',

@@ -61,6 +61,8 @@ export function extractRoutes(loaded: LoadedProject): {
         entitiesTouched,
         enabled: effect === 'read',
         confidence: 'static',
+        auth: 'unknown' as const,
+        evidence: [],
       })
     }
     if (found === 0) skipped.push({ file: rel, reason: 'no http method exports found' })
