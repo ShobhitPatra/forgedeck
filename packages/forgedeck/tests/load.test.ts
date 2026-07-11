@@ -18,6 +18,8 @@ describe('loadProject', () => {
     const files = loaded.project.getSourceFiles().map((f) => loaded.relPath(f.getFilePath()))
     expect(files).toContain('pages/api/documents.ts')
     expect(files).toContain('lib/schemas.ts')
+    expect(files).toContain('middleware.ts')
+    expect(files).toContain('lib/billing.ts')
   })
   it('detects app router only as before', () => {
     expect(loadProject('tests/fixtures/mini-shop').framework).toBe('nextjs-app-router')

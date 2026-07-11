@@ -42,6 +42,10 @@ export function loadProject(projectDir: string): LoadedProject {
     const p = join(rootDir, extra)
     if (existsSync(p)) globs.push(join(p, '**/*.ts'))
   }
+  // middleware defines matcher-based auth protection at the project root:
+  for (const mw of [join(rootDir, 'middleware.ts'), join(rootDir, 'src', 'middleware.ts')]) {
+    if (existsSync(mw)) globs.push(mw)
+  }
   project.addSourceFilesAtPaths(globs)
 
   return {
