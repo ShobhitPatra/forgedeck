@@ -13,6 +13,85 @@ import { extractServerActions } from './extract/actions.js'
 import { extractPagesApi } from './extract/pagesApi.js'
 import { loadMiddlewareMatchers } from './extract/auth.js'
 import { assembleWorkflows } from './extract/annotate.js'
+import { loadConfig } from './config/load.js'
+import { levenshtein } from './config/schema.js'
+
+// Minimal glob → RegExp for `exclude` patterns. Supports only `**` (any chars,
+// crossing `/`) and `*` (any chars except `/`) — deliberately no braces, negation,
+// or character classes (a config exclude is a fence, not a query language). Anchored
+// full-match against a project-relative POSIX path.
+export function globToRegExp(glob: string): RegExp {
+  let out = ''
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        out += '.*'
+        i++
+      } else {
+        out += '[^/]*'
+      }
+    } else if (/[.+?^${}()|[\]\\]/.test(c)) {
+      out += '\\' + c
+    } else {
+      out += c
+    }
+  }
+  return new RegExp(`^${out}$`)
+}
+
+// True when a project-relative path matches any of the exclude globs.
+function isExcluded(rel: string, patterns: RegExp[]): boolean {
+  return patterns.some((re) => re.test(rel))
+}
+
+// Nearest extracted action name within a small edit distance — powers the
+// did-you-mean on an allowlisted name that matched no action.
+function nearestActionName(name: string, actions: ActionIR[]): string | undefined {
+  let best: string | undefined
+  let bestDist = Infinity
+  for (const a of actions) {
+    const d = levenshtein(name.toLowerCase(), a.name.toLowerCase())
+    if (d < bestDist) {
+      bestDist = d
+      best = a.name
+    }
+  }
+  const threshold = Math.max(2, Math.floor(name.length / 3))
+  return best !== undefined && bestDist <= threshold ? best : undefined
+}
+
+// Apply the config allowlist AFTER collision resolution (names are final). Each
+// allowlisted name that maps to a non-read action is deliberately enabled with a
+// config-allowlist receipt. Reads are already enabled by default (no-op). Names
+// matching no action are skip-logged with a near-match suggestion. Returns coverage
+// notes for the unknown names.
+export function applyAllowlist(
+  actions: ActionIR[],
+  enabledActions: string[],
+  environment: string,
+): CoverageItem[] {
+  const skips: CoverageItem[] = []
+  const byName = new Map(actions.map((a) => [a.name, a]))
+  for (const name of enabledActions) {
+    const action = byName.get(name)
+    if (!action) {
+      const near = nearestActionName(name, actions)
+      skips.push({
+        file: 'forgedeck.config.ts',
+        reason: near
+          ? `${name} in allowlist but not found — did you mean '${near}'?`
+          : `${name} in allowlist but not found`,
+      })
+      continue
+    }
+    if (action.effect === 'read') continue
+    action.enabled = true
+    action.enabledBy = 'config-allowlist'
+    action.evidence.push(`enabled via config allowlist (${environment})`)
+  }
+  return skips
+}
 
 function surfaceSuffix(kind: ActionIR['kind']): string {
   return kind === 'route' ? '_app' : kind === 'pages-api' ? '_pages' : '_action'
@@ -95,8 +174,24 @@ export function applyPrismaTypes(actions: ActionIR[], entities: EntityIR[]): voi
   }
 }
 
-export function compile(projectDir: string): SemanticIR {
+export async function compile(projectDir: string): Promise<SemanticIR> {
+  const config = await loadConfig(projectDir)
   const loaded = loadProject(projectDir)
+
+  // Exclude globs are applied BEFORE the extraction surface scan: a matched source
+  // file is removed from the project so no surface is ever derived from it, and each
+  // removal is skip-logged. This is the fence — a whole file is out, deliberately.
+  const excludeSkips: CoverageItem[] = []
+  if (config?.exclude.length) {
+    const patterns = config.exclude.map(globToRegExp)
+    for (const sf of loaded.project.getSourceFiles()) {
+      const rel = loaded.relPath(sf.getFilePath())
+      if (!isExcluded(rel, patterns)) continue
+      excludeSkips.push({ file: rel, reason: 'excluded by config' })
+      loaded.project.removeSourceFile(sf)
+    }
+  }
+
   const { entities, workspaceNote } = extractEntitiesWithSource(loaded.rootDir)
   const matchers = loadMiddlewareMatchers(loaded)
   const routes = extractRoutes(loaded, matchers)
@@ -106,6 +201,11 @@ export function compile(projectDir: string): SemanticIR {
   const collisionSkips = resolveCollisions(actions)
   applyPrismaTypes(actions, entities)
 
+  // Allowlist runs AFTER collision resolution so it keys on final tool names.
+  const allowlistSkips = config
+    ? applyAllowlist(actions, config.enabledActions, config.environment)
+    : []
+
   // Workflows are assembled AFTER collision resolution so each step records the
   // action's final (possibly renamed) tool name.
   const { workflows, warnings: workflowWarnings } = assembleWorkflows([
@@ -113,6 +213,13 @@ export function compile(projectDir: string): SemanticIR {
     ...serverActions.workflowBindings,
     ...pagesApi.workflowBindings,
   ])
+
+  // Dormant environment blocks are surfaced so a config author sees which of their
+  // present-but-unapplied environments this build ignored.
+  const environmentSkips: CoverageItem[] = (config?.unappliedEnvironments ?? []).map((name) => ({
+    file: 'forgedeck.config.ts',
+    reason: `environment block ${name} present, not active`,
+  }))
 
   return validateIR({
     app: { name: loaded.appName, framework: loaded.framework },
@@ -122,13 +229,17 @@ export function compile(projectDir: string): SemanticIR {
     coverage: {
       extracted: actions.length,
       skipped: [
+        ...excludeSkips,
         ...routes.skipped,
         ...serverActions.skipped,
         ...pagesApi.skipped,
         ...collisionSkips,
+        ...allowlistSkips,
+        ...environmentSkips,
         ...workflowWarnings,
         ...(workspaceNote ? [workspaceNote] : []),
       ],
+      ...(config ? { environment: config.resolvedEnvLine } : {}),
     },
   })
 }

@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Project } from 'ts-morph'
 import { loadProject } from '../src/load/project'
 import { compile } from '../src/compile'
+import type { SemanticIR } from '../src/ir/types'
 import {
   detectHandlerAuth,
   detectWrapperAuth,
@@ -141,8 +142,12 @@ describe('resolveAuth resolution order', () => {
 })
 
 describe('auth integration on fixtures', () => {
-  const hybrid = compile('tests/fixtures/hybrid-shop')
-  const mini = compile('tests/fixtures/mini-shop')
+  let hybrid: SemanticIR
+  let mini: SemanticIR
+  beforeAll(async () => {
+    hybrid = await compile('tests/fixtures/hybrid-shop')
+    mini = await compile('tests/fixtures/mini-shop')
+  })
 
   it('put_settings is required via getServerSession', () => {
     const a = hybrid.actions.find((x) => x.name === 'put_settings')!

@@ -17,6 +17,7 @@ const minimal = {
       effect: 'read',
       entitiesTouched: ['Product'],
       enabled: true,
+      enabledBy: 'read-default',
       confidence: 'static',
       auth: 'unknown',
       evidence: [],
@@ -33,6 +34,17 @@ describe('validateIR', () => {
     const bad = structuredClone(minimal)
     bad.actions[0].effect = 'write'
     expect(() => validateIR(bad)).toThrow()
+  })
+  it('rejects an enabled read that is not marked read-default', () => {
+    const bad = structuredClone(minimal)
+    delete (bad.actions[0] as Record<string, unknown>).enabledBy
+    expect(() => validateIR(bad)).toThrow()
+  })
+  it('accepts an enabled mutation only when enabledBy is config-allowlist', () => {
+    const ok = structuredClone(minimal)
+    ok.actions[0].effect = 'write'
+    ok.actions[0].enabledBy = 'config-allowlist'
+    expect(validateIR(ok).actions[0].enabled).toBe(true)
   })
   it('accepts hybrid framework and pages api kind', () => {
     const hybrid = structuredClone(minimal)

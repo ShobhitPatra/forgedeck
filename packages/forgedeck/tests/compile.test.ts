@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { compile, applyPrismaTypes } from '../src/compile'
-import type { ActionIR, EntityIR } from '../src/ir/types'
+import type { ActionIR, EntityIR, SemanticIR } from '../src/ir/types'
 
 describe('compile', () => {
-  const ir = compile('tests/fixtures/mini-shop')
+  let ir: SemanticIR
+  beforeAll(async () => {
+    ir = await compile('tests/fixtures/mini-shop')
+  })
 
   it('produces a complete validated IR for mini-shop', () => {
     expect(ir.app).toEqual({ name: 'mini-shop', framework: 'nextjs-app-router' })
@@ -18,8 +21,8 @@ describe('compile', () => {
     expect(ir.coverage.skipped).toEqual([])
   })
 
-  it('compiles the hybrid fixture across both surfaces', () => {
-    const hybrid = compile('tests/fixtures/hybrid-shop')
+  it('compiles the hybrid fixture across both surfaces', async () => {
+    const hybrid = await compile('tests/fixtures/hybrid-shop')
     expect(hybrid.app.framework).toBe('nextjs-hybrid')
     const kinds = new Set(hybrid.actions.map((a) => a.kind))
     expect(kinds.has('route')).toBe(true)
@@ -27,15 +30,15 @@ describe('compile', () => {
     expect(hybrid.entities.map((e) => e.name).sort()).toEqual(['Document', 'Product', 'User'])
   })
 
-  it('traces effects one hop through the billing service layer', () => {
-    const hybrid = compile('tests/fixtures/hybrid-shop')
+  it('traces effects one hop through the billing service layer', async () => {
+    const hybrid = await compile('tests/fixtures/hybrid-shop')
     const billing = hybrid.actions.find((a) => a.name === 'post_billing')!
     expect(billing).toMatchObject({ effect: 'write', entitiesTouched: ['Order'] })
     expect(billing.evidence.join(' ')).toContain('chargeAndRecord -> prisma.order.create')
   })
 
-  it('resolves cross surface name collisions deterministically with a skip log', () => {
-    const ir = compile('tests/fixtures/collision-shop')
+  it('resolves cross surface name collisions deterministically with a skip log', async () => {
+    const ir = await compile('tests/fixtures/collision-shop')
     // app router and pages router both yield get_documents/post_documents; the
     // pages surface (sorts later by sourceFile) gets the _pages surface suffix.
     expect(ir.actions.map((a) => a.name).sort()).toEqual([
@@ -52,8 +55,8 @@ describe('compile', () => {
     })
   })
 
-  it('resolves workspace-root entities and records a coverage note', () => {
-    const ws = compile('tests/fixtures/workspace-shop/apps/web')
+  it('resolves workspace-root entities and records a coverage note', async () => {
+    const ws = await compile('tests/fixtures/workspace-shop/apps/web')
     expect(ws.entities.map((e) => e.name)).toEqual(['Widget'])
     expect(ws.coverage.skipped).toContainEqual({
       file: 'packages/database/prisma/schema.prisma',
@@ -61,8 +64,8 @@ describe('compile', () => {
     })
   })
 
-  it('adds no workspace note when a local schema resolves', () => {
-    const hybrid = compile('tests/fixtures/hybrid-shop')
+  it('adds no workspace note when a local schema resolves', async () => {
+    const hybrid = await compile('tests/fixtures/hybrid-shop')
     expect(
       hybrid.coverage.skipped.some((s) => s.reason === 'entities resolved from workspace package'),
     ).toBe(false)

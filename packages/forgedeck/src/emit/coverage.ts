@@ -7,8 +7,11 @@ export function renderCoverage(ir: SemanticIR): string {
     `${ir.coverage.extracted} actions extracted (${byKind('route')} app router, ${byKind('pages-api')} pages api, ${byKind('server-action')} server actions), ${ir.coverage.skipped.length} skipped`,
     `${ir.entities.length} entities from prisma schema`,
     `auth: ${ir.actions.filter((a) => a.auth === 'required').length} required, ${ir.actions.filter((a) => a.auth === 'unknown').length} unknown, ${ir.actions.filter((a) => a.auth === 'none').length} none`,
-    '',
   ]
+  // The resolved-environment line appears only when a config was loaded; config-less
+  // builds omit it so their coverage stays byte-identical.
+  if (ir.coverage.environment) lines.push(ir.coverage.environment)
+  lines.push('')
   // SKIPPED lines carry every coverage warning already collected upstream, including
   // malformed-@agent-tag and annotation-conflict notes, so they surface here verbatim.
   for (const s of ir.coverage.skipped) lines.push(`SKIPPED ${s.file}: ${s.reason}`)

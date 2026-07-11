@@ -16,5 +16,7 @@ describe('forgedeck build e2e', () => {
     expect(existsSync(join(out, 'tools.json'))).toBe(true)
     const manifest = JSON.parse(readFileSync(join(out, 'tools.json'), 'utf8'))
     expect(manifest.tools.filter((t: { enabled: boolean }) => t.enabled)).toHaveLength(2)
-  })
+    // The subprocess does a cold tsx start plus a full ts-morph compile; under the
+    // suite's parallel load that can exceed the 5s default, so allow generous slack.
+  }, 30000)
 })

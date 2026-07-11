@@ -5,12 +5,14 @@ import { join } from 'node:path'
 import { compile } from '../src/compile'
 import { emitBundle } from '../src/emit/bundle'
 import { renderCoverage } from '../src/emit/coverage'
+import type { SemanticIR } from '../src/ir/types'
 
 describe('emitBundle', () => {
   const out = mkdtempSync(join(tmpdir(), 'forgedeck-'))
-  const ir = compile('tests/fixtures/mini-shop')
+  let ir: SemanticIR
   let written: string[]
-  beforeAll(() => {
+  beforeAll(async () => {
+    ir = await compile('tests/fixtures/mini-shop')
     written = emitBundle(ir, out)
   })
 
@@ -60,8 +62,9 @@ describe('emitBundle', () => {
 
 describe('emitBundle auth and evidence (hybrid-shop)', () => {
   const out = mkdtempSync(join(tmpdir(), 'forgedeck-hs-'))
-  const ir = compile('tests/fixtures/hybrid-shop')
-  beforeAll(() => {
+  let ir: SemanticIR
+  beforeAll(async () => {
+    ir = await compile('tests/fixtures/hybrid-shop')
     emitBundle(ir, out)
   })
 

@@ -86,6 +86,36 @@ describe('buildToolHandlers', () => {
     expect((init as RequestInit).headers).toMatchObject({ authorization: 'Bearer secret' })
   })
 
+  it('registers an enabled pages-api tool and POSTs to its address', async () => {
+    const pagesManifest: ToolsManifest = {
+      app: 'hybrid-shop',
+      tools: [
+        {
+          name: 'post_documents',
+          description: 'POST /api/documents',
+          inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: [] },
+          kind: 'pages-api',
+          method: 'POST',
+          path: '/api/documents',
+          effect: 'write',
+          enabled: true,
+        },
+      ],
+    }
+    const fetchMock = vi.fn(async () => new Response('{"id":"d1"}'))
+    const handlers = buildToolHandlers(
+      pagesManifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+    )
+    expect([...handlers.keys()]).toEqual(['post_documents'])
+    await handlers.get('post_documents')!.run({ title: 'hello' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://localhost:3005/api/documents')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).body).toBe(JSON.stringify({ title: 'hello' }))
+  })
+
   it('request content-type wins over an injected content-type on POST', async () => {
     const postManifest: ToolsManifest = {
       app: 'mini-shop',

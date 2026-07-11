@@ -21,6 +21,12 @@ export interface ActionIR {
   effect: Effect
   entitiesTouched: string[]
   enabled: boolean
+  // Why this action is enabled, when it is. `read-default` = a read enabled by the
+  // safety default; `config-allowlist` = a mutation deliberately enabled by the
+  // committed config (compile is the ONLY code path allowed to set this). Undefined
+  // on disabled actions. The schema refinement below makes an enabled mutation that
+  // config did not authorize structurally unrepresentable.
+  enabledBy?: 'read-default' | 'config-allowlist'
   confidence: 'static'
   auth: AuthRequirement
   // Business preconditions a caller must satisfy, sourced from `@agent precondition`
@@ -50,7 +56,10 @@ export interface SemanticIR {
   entities: EntityIR[]
   actions: ActionIR[]
   workflows: WorkflowIR[]
-  coverage: { extracted: number; skipped: CoverageItem[] }
+  // `environment` is the resolved-environment line (e.g. `environment: base (via
+  // default)`), present only when a config was loaded. Absent for config-less builds
+  // so their coverage stays byte-identical.
+  coverage: { extracted: number; skipped: CoverageItem[]; environment?: string }
 }
 
 const inputField = z.object({
@@ -73,14 +82,25 @@ const action = z
     effect: z.enum(['read', 'write', 'irreversible']),
     entitiesTouched: z.array(z.string()),
     enabled: z.boolean(),
+    enabledBy: z.enum(['read-default', 'config-allowlist']).optional(),
     confidence: z.literal('static'),
     auth: z.enum(['none', 'required', 'unknown']),
     preconditions: z.array(z.string()).default([]),
     evidence: z.array(z.string()),
   })
-  .refine((a) => a.effect === 'read' || a.enabled === false, {
-    message: 'non read actions must be disabled (safety default)',
-  })
+  // Safety invariant, enforced structurally: an action may be enabled ONLY as a
+  // read-default read OR via the config allowlist. There is no shape that expresses
+  // an enabled mutation the config did not authorize.
+  .refine(
+    (a) =>
+      a.enabled === false ||
+      (a.effect === 'read' && a.enabledBy === 'read-default') ||
+      a.enabledBy === 'config-allowlist',
+    {
+      message:
+        'enabled actions must be a read-default read or config-allowlist enabled (safety default)',
+    },
+  )
 
 const entity = z.object({
   name: z.string(),
@@ -115,6 +135,7 @@ export const semanticIRSchema = z.object({
   coverage: z.object({
     extracted: z.number(),
     skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
+    environment: z.string().optional(),
   }),
 }) as z.ZodType<SemanticIR>
 

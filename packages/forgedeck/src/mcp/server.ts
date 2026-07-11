@@ -18,7 +18,11 @@ export function buildToolHandlers(
   >()
 
   for (const def of manifest.tools) {
-    if (!def.enabled || def.kind !== 'route' || !def.path || !def.method) continue
+    // Both `route` and `pages-api` tools are plain HTTP endpoints addressable by
+    // method+path, so both dispatch through this proxy. `server-action` tools have
+    // no HTTP address of their own and are handled by bridge dispatch (Task 4).
+    if (!def.enabled || (def.kind !== 'route' && def.kind !== 'pages-api')) continue
+    if (!def.path || !def.method) continue
     handlers.set(def.name, {
       def,
       async run(args) {

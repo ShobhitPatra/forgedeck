@@ -6,6 +6,7 @@ import { compile } from './compile.js'
 import { emitBundle } from './emit/bundle.js'
 import { renderCoverage } from './emit/coverage.js'
 import { startMcpServer } from './mcp/server.js'
+import { ConfigError } from './config/schema.js'
 
 const program = new Command()
 program.name('forgedeck').description('Compile your app into an MCP server').version('0.0.1')
@@ -14,10 +15,23 @@ program
   .command('build')
   .argument('[dir]', 'project directory', '.')
   .option('--out <dir>', 'bundle output directory')
-  .action((dir: string, opts: { out?: string }) => {
+  .action(async (dir: string, opts: { out?: string }) => {
     const projectDir = resolve(dir)
     const outDir = resolve(opts.out ?? join(projectDir, '.agent'))
-    const ir = compile(projectDir)
+    let ir
+    try {
+      ir = await compile(projectDir)
+    } catch (err) {
+      // A config error is the one deliberate build-breaking exception: print why and
+      // exit non-zero. Every other error keeps its existing (thrown) behavior.
+      if (err instanceof ConfigError) {
+        console.error(`forgedeck: ${err.message}`)
+        if (!err.message.includes(ConfigError.explanation)) console.error(ConfigError.explanation)
+        process.exitCode = 1
+        return
+      }
+      throw err
+    }
     const written = emitBundle(ir, outDir)
     const report = renderCoverage(ir)
     writeFileSync(join(outDir, 'coverage.txt'), report)

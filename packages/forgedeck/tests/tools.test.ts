@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { compile } from '../src/compile'
-import { toToolsManifest } from '../src/emit/tools'
+import { toToolsManifest, type ToolsManifest } from '../src/emit/tools'
 
 describe('toToolsManifest', () => {
-  const manifest = toToolsManifest(compile('tests/fixtures/mini-shop'))
+  let manifest: ToolsManifest
+  beforeAll(async () => {
+    manifest = toToolsManifest(await compile('tests/fixtures/mini-shop'))
+  })
 
   it('emits one tool per action with json schema inputs', () => {
     expect(manifest.app).toBe('mini-shop')
@@ -29,7 +32,10 @@ describe('toToolsManifest', () => {
 })
 
 describe('toToolsManifest preconditions (hybrid-shop)', () => {
-  const manifest = toToolsManifest(compile('tests/fixtures/hybrid-shop'))
+  let manifest: ToolsManifest
+  beforeAll(async () => {
+    manifest = toToolsManifest(await compile('tests/fixtures/hybrid-shop'))
+  })
 
   it('appends preconditions to the tool description so the agent sees them at call time', () => {
     const del = manifest.tools.find((t) => t.name === 'delete_survey')!
