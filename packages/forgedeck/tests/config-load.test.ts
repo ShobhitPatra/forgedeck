@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, ConfigError } from '../src/config/load'
+import { loadConfig, ConfigError, rewriteDefineConfigImport } from '../src/config/load'
 
 // Each test gets a throwaway project dir with a minimal `forgedeck` shim in
 // node_modules so the config's `import { defineConfig } from 'forgedeck'`
@@ -103,5 +103,52 @@ describe('loadConfig', () => {
     const resolved = await loadConfig(dir)
     expect(resolved!.enabledActions).toEqual(['a'])
     expect(resolved!.bridges).toBe(false)
+  })
+
+  it("loads a config importing defineConfig from 'forgedeck' with no package installed", async () => {
+    // No node_modules shim here: the loader satisfies the identity import by rewriting
+    // it, so a target app's config resolves even though 'forgedeck' is unresolvable.
+    const dir = mkdtempSync(join(tmpdir(), 'fd-noshim-'))
+    dirs.push(dir)
+    writeFileSync(
+      join(dir, 'forgedeck.config.ts'),
+      `import { defineConfig } from 'forgedeck'
+       export default defineConfig({ enabledActions: ['post_documents'] })`,
+    )
+    const resolved = await loadConfig(dir)
+    expect(resolved!.enabledActions).toEqual(['post_documents'])
+  })
+
+  it('lists environment blocks whose overlay did not apply this build', async () => {
+    const dir = project(
+      'forgedeck.config.ts',
+      `export default {
+         enabledActions: ['base_only'],
+         environments: { staging: { enabledActions: ['s'] }, prod: { enabledActions: ['p'] } },
+       }`,
+    )
+    const resolved = await loadConfig(dir)
+    // Base is active (no env var), so both declared blocks are dormant.
+    expect(resolved!.unappliedEnvironments.sort()).toEqual(['prod', 'staging'])
+  })
+})
+
+describe('rewriteDefineConfigImport', () => {
+  it('replaces the forgedeck defineConfig import with a local identity', () => {
+    const out = rewriteDefineConfigImport(
+      `import { defineConfig } from 'forgedeck'\nexport default defineConfig({})`,
+    )
+    expect(out).toContain('const defineConfig = (c) => c;')
+    expect(out).not.toMatch(/from ['"]forgedeck['"]/)
+  })
+  it('tolerates leading indentation and double quotes', () => {
+    const out = rewriteDefineConfigImport(`   import {defineConfig} from "forgedeck";\nx`)
+    expect(out).toContain('const defineConfig = (c) => c;')
+  })
+  it('leaves other imports untouched', () => {
+    const out = rewriteDefineConfigImport(
+      `import { z } from 'zod'\nimport { defineConfig } from 'forgedeck'`,
+    )
+    expect(out).toContain(`import { z } from 'zod'`)
   })
 })

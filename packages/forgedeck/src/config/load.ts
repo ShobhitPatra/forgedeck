@@ -25,6 +25,9 @@ export interface ResolvedConfig {
   environmentSource: ResolvedEnvironment['source']
   /** e.g. `environment: staging (via FORGEDECK_ENV)` — printed in every build's coverage. */
   resolvedEnvLine: string
+  /** Environment blocks present in config whose overlay did NOT apply this build.
+   * Coverage lists them so a config author sees which blocks are dormant here. */
+  unappliedEnvironments: string[]
 }
 
 // Config file names in priority order.
@@ -54,6 +57,12 @@ function resolve(parsed: ParsedConfig): ResolvedConfig {
     FORGEDECK_ENV: process.env.FORGEDECK_ENV,
     NODE_ENV: process.env.NODE_ENV,
   })
+  // The active block (if any) is the resolved environment when it was chosen by an
+  // env var; every other declared block is dormant this build.
+  const activeName = env.source === 'default' ? undefined : env.name
+  const unappliedEnvironments = Object.keys(parsed.environments ?? {}).filter(
+    (n) => n !== activeName,
+  )
   return {
     exclude: parsed.exclude ?? [],
     out: parsed.out,
@@ -62,7 +71,22 @@ function resolve(parsed: ParsedConfig): ResolvedConfig {
     environment: env.name,
     environmentSource: env.source,
     resolvedEnvLine: env.line,
+    unappliedEnvironments,
   }
+}
+
+// `defineConfig` is a typed IDENTITY helper — `(c) => c`, nothing more. A config
+// file imports it from the `'forgedeck'` package specifier, which will not resolve
+// when we transpile+import the single file in isolation (the package isn't a
+// sibling of an arbitrary target app's config). Because the helper is pure identity,
+// we can honestly satisfy the import by replacing the import line with a local
+// identity definition before transpiling; the runtime meaning is unchanged and no
+// package resolution is needed. Any other import in the config is left untouched.
+export function rewriteDefineConfigImport(source: string): string {
+  return source.replace(
+    /^[ \t]*import\s*\{\s*defineConfig\s*\}\s*from\s*['"]forgedeck['"];?[ \t]*$/m,
+    'const defineConfig = (c) => c;',
+  )
 }
 
 // Import a config file's default export. `.ts` is transpiled to a sibling temp
@@ -75,7 +99,7 @@ async function importConfigModule(configPath: string): Promise<unknown> {
 
   try {
     if (isTs) {
-      const source = readFileSync(configPath, 'utf8')
+      const source = rewriteDefineConfigImport(readFileSync(configPath, 'utf8'))
       const transpiled = ts.transpileModule(source, {
         compilerOptions: {
           module: ts.ModuleKind.ESNext,
@@ -89,7 +113,10 @@ async function importConfigModule(configPath: string): Promise<unknown> {
           `${configPath}: TypeScript error: ${ts.flattenDiagnosticMessageText(fatal.messageText, '\n')}\n${ConfigError.explanation}`,
         )
       }
-      tempPath = join(configPath.slice(0, -3) + `.forgedeck-${process.pid}-${Date.now()}.mjs`)
+      tempPath = join(
+        configPath.slice(0, -3) +
+          `.forgedeck-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`,
+      )
       writeFileSync(tempPath, transpiled.outputText)
       importPath = tempPath
     }

@@ -60,8 +60,9 @@ export type ParsedConfig = z.infer<typeof valueSchema>
 const KNOWN_KEYS = ['exclude', 'out', 'enabledActions', 'environments', 'public', 'bridges']
 
 // Minimal iterative Levenshtein — no dependency. Powers the "did you mean" hint
-// for a mistyped top-level config key.
-function levenshtein(a: string, b: string): number {
+// for a mistyped top-level config key, and (reused by compile) the near-match
+// suggestion for an allowlisted action name that matched no extracted action.
+export function levenshtein(a: string, b: string): number {
   const m = a.length
   const n = b.length
   let prev = Array.from({ length: n + 1 }, (_, i) => i)

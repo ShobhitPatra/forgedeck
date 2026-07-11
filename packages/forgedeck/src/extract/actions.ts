@@ -127,6 +127,7 @@ export function extractServerActions(loaded: LoadedProject): {
         effect,
         entitiesTouched,
         enabled: effect === 'read',
+        enabledBy: effect === 'read' ? 'read-default' : undefined,
         confidence: 'static',
         auth,
         preconditions: [],

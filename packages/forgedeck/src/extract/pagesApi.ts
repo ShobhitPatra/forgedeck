@@ -348,6 +348,7 @@ export function extractPagesApi(
         effect,
         entitiesTouched,
         enabled: effect === 'read',
+        enabledBy: effect === 'read' ? 'read-default' : undefined,
         confidence: 'static',
         auth: resolvedAuth.auth,
         preconditions: [],

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { compile } from '../src/compile'
 import type { SemanticIR } from '../src/ir/types'
 
@@ -9,9 +9,13 @@ import type { SemanticIR } from '../src/ir/types'
 // never contradict static evidence, and every change is auditable.
 
 describe('annotation semantics on hybrid-shop', () => {
-  const ir: SemanticIR = compile('tests/fixtures/hybrid-shop')
+  let ir: SemanticIR
   const byName = (n: string) => ir.actions.find((a) => a.name === n)
-  const reasons = ir.coverage.skipped.map((s) => s.reason)
+  let reasons: string[]
+  beforeAll(async () => {
+    ir = await compile('tests/fixtures/hybrid-shop')
+    reasons = ir.coverage.skipped.map((s) => s.reason)
+  })
 
   it('delete_survey escalates write -> irreversible, stays disabled, with precondition + receipts', () => {
     const a = byName('delete_survey')!
@@ -100,7 +104,10 @@ describe('annotation semantics on hybrid-shop', () => {
 })
 
 describe('annotations leave un-annotated apps untouched (mini-shop frozen)', () => {
-  const mini: SemanticIR = compile('tests/fixtures/mini-shop')
+  let mini: SemanticIR
+  beforeAll(async () => {
+    mini = await compile('tests/fixtures/mini-shop')
+  })
 
   it('has no workflows and no preconditions and no annotation coverage notes', () => {
     expect(mini.workflows).toEqual([])
