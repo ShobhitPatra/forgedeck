@@ -18,6 +18,8 @@ const minimal = {
       entitiesTouched: ['Product'],
       enabled: true,
       confidence: 'static',
+      auth: 'unknown',
+      evidence: [],
     },
   ],
   coverage: { extracted: 1, skipped: [] },
@@ -42,5 +44,13 @@ describe('validateIR', () => {
     const bad = structuredClone(minimal)
     delete (bad.actions[0].inputs[0] as Record<string, unknown>).location
     expect(() => validateIR(bad)).toThrow()
+  })
+  it('rejects an action missing auth or evidence', () => {
+    const bad = structuredClone(minimal)
+    delete (bad.actions[0] as Record<string, unknown>).auth
+    expect(() => validateIR(bad)).toThrow()
+    const bad2 = structuredClone(minimal)
+    delete (bad2.actions[0] as Record<string, unknown>).evidence
+    expect(() => validateIR(bad2)).toThrow()
   })
 })

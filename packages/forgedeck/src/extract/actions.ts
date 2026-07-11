@@ -58,6 +58,8 @@ export function extractServerActions(loaded: LoadedProject): {
         entitiesTouched,
         enabled: effect === 'read',
         confidence: 'static',
+        auth: 'unknown' as const,
+        evidence: [],
       })
     }
     if (candidates.length === 0)
