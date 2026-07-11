@@ -139,6 +139,110 @@ describe('extractRoutes hybrid-shop wrapped route integration', () => {
   })
 })
 
+describe('extractRoutes barrel re-exports', () => {
+  it('resolves an alias-path barrel re-export to the target handler', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded(
+        {
+          '/modules/reportHandlers.ts': `export const GET = async () => Response.json(await prisma.document.findMany())`,
+          '/app/api/exports/route.ts': `export { GET } from '@/modules/reportHandlers'`,
+        },
+        undefined,
+        { baseUrl: '/', paths: { '@/*': ['./*'] } },
+      ),
+    )
+    expect(skipped).toEqual([])
+    const exp = actions.find((a) => a.name === 'get_exports')!
+    expect(exp).toMatchObject({ method: 'GET', effect: 'read', enabled: true })
+    expect(exp.evidence).toContain('handler via re export from modules/reportHandlers.ts')
+  })
+
+  it('resolves a relative barrel re-export with a renamed non-method alias ignored', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/modules/reportHandlers.ts': `export async function POST() { return Response.json(await prisma.document.create({ data: {} }), { status: 201 }) }
+export const GET = async () => Response.json(await prisma.document.findMany())`,
+        '/app/api/imports/route.ts': `export { POST, GET as HEAD } from '../../../modules/reportHandlers'`,
+      }),
+    )
+    expect(skipped).toEqual([])
+    const post = actions.find((a) => a.name === 'post_imports')!
+    expect(post).toMatchObject({ method: 'POST', effect: 'write', enabled: false })
+    expect(post.evidence).toContain('handler via re export from modules/reportHandlers.ts')
+    // GET as HEAD: HEAD is not a recognized method, so nothing extra extracted
+    expect(actions.filter((a) => a.name.startsWith('get_imports') || a.method === 'HEAD')).toEqual(
+      [],
+    )
+  })
+
+  it('skip-logs a wildcard re-export instead of following it', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/modules/reportHandlers.ts': `export const GET = async () => new Response('ok')`,
+        '/app/api/wild/route.ts': `export * from '../../../modules/reportHandlers'`,
+      }),
+    )
+    expect(actions.find((a) => a.name === 'get_wild')).toBeFalsy()
+    expect(skipped).toContainEqual({
+      file: 'app/api/wild/route.ts',
+      reason: 'wildcard re export not followed',
+    })
+  })
+
+  it('skip-logs an unresolvable barrel specifier', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/app/api/missing/route.ts': `export { GET } from './does-not-exist'`,
+      }),
+    )
+    expect(actions.find((a) => a.name === 'get_missing')).toBeFalsy()
+    expect(skipped).toContainEqual({
+      file: 'app/api/missing/route.ts',
+      reason: 're exported handler not resolved: ./does-not-exist',
+    })
+  })
+})
+
+describe('extractRoutes hybrid-shop barrel re-export integration', () => {
+  const { actions, skipped } = extractRoutes(loadProject('tests/fixtures/hybrid-shop'))
+
+  it('extracts get_exports through a relative barrel re-export', () => {
+    const exp = actions.find((a) => a.name === 'get_exports')!
+    expect(exp).toMatchObject({
+      kind: 'route',
+      method: 'GET',
+      effect: 'read',
+      enabled: true,
+      entitiesTouched: ['Document'],
+    })
+    expect(exp.evidence).toContain('handler via re export from modules/reportHandlers.ts')
+  })
+
+  it('extracts post_imports through an alias barrel re-export and ignores the HEAD alias', () => {
+    const post = actions.find((a) => a.name === 'post_imports')!
+    expect(post).toMatchObject({
+      kind: 'route',
+      method: 'POST',
+      effect: 'write',
+      enabled: false,
+      entitiesTouched: ['Document'],
+    })
+    expect(post.evidence).toContain('handler via re export from modules/reportHandlers.ts')
+    expect(actions.some((a) => a.method === 'HEAD')).toBe(false)
+  })
+
+  it('drops the old no-http-method skip-logs for both barrels', () => {
+    expect(skipped).not.toContainEqual({
+      file: 'app/api/exports/route.ts',
+      reason: 'no http method exports found',
+    })
+    expect(skipped).not.toContainEqual({
+      file: 'app/api/imports/route.ts',
+      reason: 'no http method exports found',
+    })
+  })
+})
+
 describe('extractRoutes path params', () => {
   it('adds path params as required path inputs', () => {
     const { actions } = extractRoutes(
