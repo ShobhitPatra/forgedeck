@@ -47,7 +47,7 @@ export function extractRoutes(loaded: LoadedProject): {
       const body = handlerBody(sf, method)
       if (body === undefined) continue
       found++
-      const { effect, entitiesTouched } = classifyEffect(body, { method })
+      const { effect, entitiesTouched, evidence } = classifyEffect(body, { method, sf })
       actions.push({
         name: routeToName(method, path),
         kind: 'route',
@@ -62,7 +62,7 @@ export function extractRoutes(loaded: LoadedProject): {
         enabled: effect === 'read',
         confidence: 'static',
         auth: 'unknown' as const,
-        evidence: [],
+        evidence,
       })
     }
     if (found === 0) skipped.push({ file: rel, reason: 'no http method exports found' })

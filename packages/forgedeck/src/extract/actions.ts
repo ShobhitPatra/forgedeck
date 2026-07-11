@@ -46,7 +46,7 @@ export function extractServerActions(loaded: LoadedProject): {
     }
 
     for (const { fnName, body } of candidates) {
-      const { effect, entitiesTouched } = classifyEffect(body, {})
+      const { effect, entitiesTouched, evidence } = classifyEffect(body, { sf })
       actions.push({
         name: fnToName(fnName),
         kind: 'server-action',
@@ -59,7 +59,7 @@ export function extractServerActions(loaded: LoadedProject): {
         enabled: effect === 'read',
         confidence: 'static',
         auth: 'unknown' as const,
-        evidence: [],
+        evidence,
       })
     }
     if (candidates.length === 0)

@@ -286,8 +286,8 @@ export function extractPagesApi(loaded: LoadedProject): {
       location: 'path',
     }))
 
-    const emit = (method: string, text: string, evidence: string[]): void => {
-      const { effect, entitiesTouched } = classifyEffect(text, { method })
+    const emit = (method: string, text: string, methodEvidence: string[]): void => {
+      const { effect, entitiesTouched, evidence } = classifyEffect(text, { method, sf })
       actions.push({
         name: routeToName(method, path),
         kind: 'pages-api',
@@ -302,7 +302,7 @@ export function extractPagesApi(loaded: LoadedProject): {
         enabled: effect === 'read',
         confidence: 'static',
         auth: 'unknown' as const,
-        evidence,
+        evidence: [...methodEvidence, ...evidence],
       })
     }
 

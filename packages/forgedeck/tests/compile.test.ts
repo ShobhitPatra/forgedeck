@@ -27,6 +27,13 @@ describe('compile', () => {
     expect(hybrid.entities.map((e) => e.name).sort()).toEqual(['Document', 'Product', 'User'])
   })
 
+  it('traces effects one hop through the billing service layer', () => {
+    const hybrid = compile('tests/fixtures/hybrid-shop')
+    const billing = hybrid.actions.find((a) => a.name === 'post_billing')!
+    expect(billing).toMatchObject({ effect: 'write', entitiesTouched: ['Order'] })
+    expect(billing.evidence.join(' ')).toContain('chargeAndRecord -> prisma.order.create')
+  })
+
   it('resolves cross surface name collisions deterministically with a skip log', () => {
     const ir = compile('tests/fixtures/collision-shop')
     // app router and pages router both yield get_documents/post_documents; the
