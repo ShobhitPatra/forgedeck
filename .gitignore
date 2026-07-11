@@ -7,6 +7,12 @@ dist/
 build/
 *.tsbuildinfo
 
+# mini-shop fixture: generated artifacts (fixture package-lock.json stays committed)
+packages/forgedeck/tests/fixtures/mini-shop/node_modules
+packages/forgedeck/tests/fixtures/mini-shop/prisma/dev.db
+packages/forgedeck/tests/fixtures/mini-shop/.next/
+packages/forgedeck/tests/fixtures/mini-shop/next-env.d.ts
+
 # Env & secrets
 .env
 .env.*
