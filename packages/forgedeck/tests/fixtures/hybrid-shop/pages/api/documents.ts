@@ -2,6 +2,9 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createDocumentSchema } from '../../lib/schemas'
 import { prisma } from '../../lib/db'
 
+/**
+ * @agent workflow setup step 1
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const docs = await prisma.document.findMany()

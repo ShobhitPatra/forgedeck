@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth'
 import { updateSettingsSchema } from '../../lib/schemas'
 import { prisma } from '../../lib/db'
 
+/**
+ * @agent workflow setup step 2
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession()
   if (!session) return res.status(401).end()

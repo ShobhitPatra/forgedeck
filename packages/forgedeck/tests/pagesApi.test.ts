@@ -10,6 +10,7 @@ describe('extractPagesApi', () => {
     const names = actions.map((a) => a.name).sort()
     expect(names).toEqual([
       'delete_documents_by_id',
+      'get_debug',
       'get_documents',
       'get_documents_by_id',
       'get_folders',
