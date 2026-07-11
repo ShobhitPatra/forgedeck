@@ -4,6 +4,7 @@ import type { LoadedProject } from '../load/project.js'
 import { routePathFromFile, routeToName, paramsFromPath } from '../ir/names.js'
 import { classifyEffect } from './effects.js'
 import { extractInputs } from './inputs.js'
+import { detectHandlerAuth, resolveAuth, isAuthPlumbingRoute, type Matcher } from './auth.js'
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 
@@ -22,7 +23,10 @@ function handlerBody(sf: SourceFile, method: string): string | undefined {
   return undefined
 }
 
-export function extractRoutes(loaded: LoadedProject): {
+export function extractRoutes(
+  loaded: LoadedProject,
+  matchers: Matcher[] = [],
+): {
   actions: ActionIR[]
   skipped: CoverageItem[]
 } {
@@ -32,6 +36,10 @@ export function extractRoutes(loaded: LoadedProject): {
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
     if (!/(^|\/)route\.tsx?$/.test(rel)) continue
+    if (isAuthPlumbingRoute(rel)) {
+      skipped.push({ file: rel, reason: 'auth plumbing route, excluded' })
+      continue
+    }
 
     const relFromApp = rel.replace(/^src\//, '')
     const path = routePathFromFile(relFromApp)
@@ -48,6 +56,11 @@ export function extractRoutes(loaded: LoadedProject): {
       if (body === undefined) continue
       found++
       const { effect, entitiesTouched, evidence } = classifyEffect(body, { method, sf })
+      const { auth, evidence: authEvidence } = resolveAuth(
+        detectHandlerAuth(body, sf),
+        path,
+        matchers,
+      )
       actions.push({
         name: routeToName(method, path),
         kind: 'route',
@@ -61,8 +74,8 @@ export function extractRoutes(loaded: LoadedProject): {
         entitiesTouched,
         enabled: effect === 'read',
         confidence: 'static',
-        auth: 'unknown' as const,
-        evidence,
+        auth,
+        evidence: [...evidence, ...authEvidence],
       })
     }
     if (found === 0) skipped.push({ file: rel, reason: 'no http method exports found' })

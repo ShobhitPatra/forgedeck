@@ -11,6 +11,14 @@ import type { LoadedProject } from '../load/project.js'
 import { routeToName, paramsFromPath } from '../ir/names.js'
 import { classifyEffect } from './effects.js'
 import { extractInputs } from './inputs.js'
+import {
+  detectHandlerAuth,
+  detectWrapperAuth,
+  resolveAuth,
+  isAuthPlumbingRoute,
+  type AuthResult,
+  type Matcher,
+} from './auth.js'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 type FnLike = FunctionDeclaration | ArrowFunction | FunctionExpression
@@ -57,7 +65,9 @@ function resolveLocalHandler(sf: SourceFile, name: string): FnLike | undefined {
 }
 
 type Resolution =
-  { kind: 'ok'; node: FnLike } | { kind: 'none' } | { kind: 'wrapper'; name: string }
+  | { kind: 'ok'; node: FnLike; wrapper?: string }
+  | { kind: 'none' }
+  | { kind: 'wrapper'; name: string }
 
 // Resolve the default-exported handler across all four real-world forms.
 function resolveHandler(sf: SourceFile): Resolution {
@@ -79,16 +89,18 @@ function resolveHandler(sf: SourceFile): Resolution {
     return node ? { kind: 'ok', node } : { kind: 'none' }
   }
 
-  // Form 4: export default withX(handler) -> unwrap one level, resolve first arg
+  // Form 4: export default withX(handler) -> unwrap one level, resolve first arg.
+  // The wrapper NAME rides along on a successful resolution so auth detection can
+  // read protection out of `withAuth`/`withTeamApi`-style names (contract rule 2).
   if (Node.isCallExpression(expr)) {
     const wrapperName = expr.getExpression().getText()
     const arg = expr.getArguments()[0]
     if (arg) {
       if (Node.isIdentifier(arg)) {
         const node = resolveLocalHandler(sf, arg.getText())
-        if (node) return { kind: 'ok', node }
+        if (node) return { kind: 'ok', node, wrapper: wrapperName }
       } else if (Node.isArrowFunction(arg) || Node.isFunctionExpression(arg)) {
-        return { kind: 'ok', node: arg }
+        return { kind: 'ok', node: arg, wrapper: wrapperName }
       }
     }
     return { kind: 'wrapper', name: wrapperName }
@@ -256,7 +268,10 @@ function segmentBody(
   return { found, tail: tailParts.join('\n'), wholeText }
 }
 
-export function extractPagesApi(loaded: LoadedProject): {
+export function extractPagesApi(
+  loaded: LoadedProject,
+  matchers: Matcher[] = [],
+): {
   actions: ActionIR[]
   skipped: CoverageItem[]
 } {
@@ -267,6 +282,10 @@ export function extractPagesApi(loaded: LoadedProject): {
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
     if (!/^(src\/)?pages\/api\//.test(rel)) continue
+    if (isAuthPlumbingRoute(rel)) {
+      skipped.push({ file: rel, reason: 'auth plumbing route, excluded' })
+      continue
+    }
 
     const resolved = resolveHandler(sf)
     if (resolved.kind === 'none') {
@@ -286,6 +305,19 @@ export function extractPagesApi(loaded: LoadedProject): {
       location: 'path',
     }))
 
+    const { found, tail, wholeText, note } = segmentBody(resolved.node, sf)
+    if (note) skipped.push({ file: rel, reason: note })
+
+    // Auth is a whole-handler property: session guards sit above the method
+    // dispatch, and a `withAuth`-style wrapper protects every arm. Detect it once
+    // over the full body, wrapper as fallback when no session idiom is present.
+    const idiomAuth = detectHandlerAuth(wholeText, sf)
+    const wrapperAuth: AuthResult = resolved.wrapper
+      ? detectWrapperAuth(resolved.wrapper)
+      : { auth: 'unknown', evidence: [] }
+    const handlerAuth = idiomAuth.auth === 'required' ? idiomAuth : wrapperAuth
+    const resolvedAuth = resolveAuth(handlerAuth, path, matchers)
+
     const emit = (method: string, text: string, methodEvidence: string[]): void => {
       const { effect, entitiesTouched, evidence } = classifyEffect(text, { method, sf })
       actions.push({
@@ -301,13 +333,10 @@ export function extractPagesApi(loaded: LoadedProject): {
         entitiesTouched,
         enabled: effect === 'read',
         confidence: 'static',
-        auth: 'unknown' as const,
-        evidence: [...methodEvidence, ...evidence],
+        auth: resolvedAuth.auth,
+        evidence: [...methodEvidence, ...evidence, ...resolvedAuth.evidence],
       })
     }
-
-    const { found, tail, wholeText, note } = segmentBody(resolved.node, sf)
-    if (note) skipped.push({ file: rel, reason: note })
 
     if (found.length === 0) {
       emit('POST', wholeText, ['method POST via conservative default'])
