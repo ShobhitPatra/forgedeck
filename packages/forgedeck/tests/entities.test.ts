@@ -17,4 +17,11 @@ describe('extractEntities', () => {
   it('returns empty array when no schema exists', () => {
     expect(extractEntities('/nonexistent')).toEqual([])
   })
+  it('extracts models from a multi file schema folder', () => {
+    const entities = extractEntities('tests/fixtures/hybrid-shop')
+    expect(entities.map((e) => e.name).sort()).toEqual(['Document', 'Product', 'User'])
+    const doc = entities.find((e) => e.name === 'Document')!
+    expect(doc.relations).toContainEqual({ field: 'owner', target: 'User' })
+    expect(doc.sourceFile).toBe('prisma/schema/document.prisma')
+  })
 })
