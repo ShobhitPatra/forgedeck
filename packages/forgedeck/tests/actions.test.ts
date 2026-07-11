@@ -18,8 +18,8 @@ describe('extractServerActions', () => {
       sourceFile: 'app/actions/cart.ts',
     })
     expect(actions[0].inputs).toEqual([
-      { name: 'productId', type: 'string', required: true },
-      { name: 'quantity', type: 'number', required: true },
+      { name: 'productId', type: 'string', required: true, location: 'body' },
+      { name: 'quantity', type: 'number', required: true, location: 'body' },
     ])
     expect(skipped).toEqual([])
   })

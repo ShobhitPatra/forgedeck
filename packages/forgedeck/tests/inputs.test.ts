@@ -23,9 +23,9 @@ describe('extractInputs', () => {
     `)
     const body = sf.getFunction('POST')!.getBodyText()!
     expect(extractInputs(sf, body)).toEqual([
-      { name: 'email', type: 'string', required: true },
-      { name: 'quantity', type: 'number', required: true },
-      { name: 'note', type: 'string', required: false },
+      { name: 'email', type: 'string', required: true, location: 'body' },
+      { name: 'quantity', type: 'number', required: true, location: 'body' },
+      { name: 'note', type: 'string', required: false, location: 'body' },
     ])
   })
   it('returns empty when no schema is referenced', () => {
@@ -44,9 +44,9 @@ describe('extractInputs', () => {
     `)
     const body = sf.getFunction('POST')!.getBodyText()!
     expect(extractInputs(sf, body)).toEqual([
-      { name: 'status', type: 'unknown', required: true },
-      { name: 'page', type: 'number', required: true },
-      { name: 'name', type: 'string', required: false },
+      { name: 'status', type: 'unknown', required: true, location: 'body' },
+      { name: 'page', type: 'number', required: true, location: 'body' },
+      { name: 'name', type: 'string', required: false, location: 'body' },
     ])
   })
 })

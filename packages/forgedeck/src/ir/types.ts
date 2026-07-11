@@ -1,14 +1,16 @@
 import { z } from 'zod'
 
 export type Effect = 'read' | 'write' | 'irreversible'
+export type Framework = 'nextjs-app-router' | 'nextjs-pages-router' | 'nextjs-hybrid'
 export interface InputField {
   name: string
   type: 'string' | 'number' | 'boolean' | 'unknown'
   required: boolean
+  location: 'body' | 'query' | 'path'
 }
 export interface ActionIR {
   name: string
-  kind: 'route' | 'server-action'
+  kind: 'route' | 'server-action' | 'pages-api'
   method?: string
   path?: string
   sourceFile: string
@@ -31,7 +33,7 @@ export interface CoverageItem {
   reason: string
 }
 export interface SemanticIR {
-  app: { name: string; framework: 'nextjs-app-router' }
+  app: { name: string; framework: Framework }
   entities: EntityIR[]
   actions: ActionIR[]
   coverage: { extracted: number; skipped: CoverageItem[] }
@@ -41,12 +43,13 @@ const inputField = z.object({
   name: z.string(),
   type: z.enum(['string', 'number', 'boolean', 'unknown']),
   required: z.boolean(),
+  location: z.enum(['body', 'query', 'path']),
 })
 
 const action = z
   .object({
     name: z.string().regex(/^[a-z][a-z0-9_]*$/),
-    kind: z.enum(['route', 'server-action']),
+    kind: z.enum(['route', 'server-action', 'pages-api']),
     method: z.string().optional(),
     path: z.string().optional(),
     sourceFile: z.string(),
@@ -70,7 +73,10 @@ const entity = z.object({
 })
 
 export const semanticIRSchema = z.object({
-  app: z.object({ name: z.string(), framework: z.literal('nextjs-app-router') }),
+  app: z.object({
+    name: z.string(),
+    framework: z.enum(['nextjs-app-router', 'nextjs-pages-router', 'nextjs-hybrid']),
+  }),
   entities: z.array(entity),
   actions: z.array(action),
   coverage: z.object({
