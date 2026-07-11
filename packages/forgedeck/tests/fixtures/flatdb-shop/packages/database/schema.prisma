@@ -1,0 +1,4 @@
+model Gadget {
+  id   String @id
+  name String
+}
