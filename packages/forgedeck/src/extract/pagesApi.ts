@@ -19,7 +19,7 @@ import {
   type AuthResult,
   type Matcher,
 } from './auth.js'
-import { readAgentDoc } from './jsdoc.js'
+import { readAgentDoc, hasAgentAnnotations } from './jsdoc.js'
 import { applyAgentDoc, jsdocHostOf, type WorkflowBinding } from './annotate.js'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
@@ -286,24 +286,42 @@ export function extractPagesApi(
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
     if (!/^(src\/)?pages\/api\//.test(rel)) continue
-    if (isAuthPlumbingRoute(rel)) {
-      skipped.push({ file: rel, reason: 'auth plumbing route, excluded' })
-      continue
-    }
 
+    // Auth plumbing (NextAuth/Clerk catch-alls) is excluded by default, but the human
+    // channel must be able to reach it: read the JSDoc BEFORE honoring the exclusion.
+    // A handler that doesn't even resolve can't be annotated-and-extracted, so it
+    // keeps the plumbing reason; a resolvable handler is only excluded if unannotated.
+    const plumbing = isAuthPlumbingRoute(rel)
     const resolved = resolveHandler(sf)
     if (resolved.kind === 'none') {
-      skipped.push({ file: rel, reason: 'no default export handler found' })
+      skipped.push({
+        file: rel,
+        reason: plumbing ? 'auth plumbing route, excluded' : 'no default export handler found',
+      })
       continue
     }
     if (resolved.kind === 'wrapper') {
-      skipped.push({ file: rel, reason: `wrapped default export not resolved: ${resolved.name}` })
+      skipped.push({
+        file: rel,
+        reason: plumbing
+          ? 'auth plumbing route, excluded'
+          : `wrapped default export not resolved: ${resolved.name}`,
+      })
       continue
     }
 
     // One handler declaration carries one JSDoc block for all of its derived method
     // actions. `@agent ignore` excludes the whole handler before anything is emitted.
     const doc = readAgentDoc(jsdocHostOf(resolved.node))
+
+    // Plumbing exclusion applies only to UN-annotated routes: any @agent tag or a
+    // JSDoc summary is a deliberate decision to surface the route, so the human fact
+    // overrides the heuristic and extraction proceeds with a receipt on each action.
+    if (plumbing && !hasAgentAnnotations(doc)) {
+      skipped.push({ file: rel, reason: 'auth plumbing route, excluded' })
+      continue
+    }
+
     if (doc.ignore) {
       skipped.push({ file: rel, reason: 'excluded by @agent ignore' })
       continue
@@ -352,7 +370,12 @@ export function extractPagesApi(
         confidence: 'static',
         auth: resolvedAuth.auth,
         preconditions: [],
-        evidence: [...methodEvidence, ...evidence, ...resolvedAuth.evidence],
+        evidence: [
+          ...methodEvidence,
+          ...evidence,
+          ...resolvedAuth.evidence,
+          ...(plumbing ? ['auth plumbing exclusion overridden by annotations'] : []),
+        ],
       })
     }
 

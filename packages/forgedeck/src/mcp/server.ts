@@ -5,6 +5,19 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import type { ToolDef, ToolsManifest } from '../emit/tools.js'
 
+// Turn an upstream Response into the string an MCP tool returns. A 2xx passes its
+// body through unchanged. A non-2xx is a tool-level FAILURE and must look like one:
+// we return an error STRING ('HTTP <status> <statusText>', plus the body when the
+// upstream sent one) rather than throwing. Throwing would tear down the tool call;
+// a string keeps the MCP session alive AND unmistakable, so an agent can never
+// narrate a 404/500 as a successful empty result. Honesty over convenience.
+async function readDispatchResult(res: Response): Promise<string> {
+  const text = await res.text()
+  if (res.ok) return text
+  const line = `HTTP ${res.status} ${res.statusText}`.trimEnd()
+  return text ? `${line}\n${text}` : line
+}
+
 export function buildToolHandlers(
   manifest: ToolsManifest,
   targetUrl: string,
@@ -42,7 +55,7 @@ export function buildToolHandlers(
             headers,
             body: JSON.stringify(args),
           })
-          return await res.text()
+          return await readDispatchResult(res)
         },
       })
       continue
@@ -70,7 +83,7 @@ export function buildToolHandlers(
           const init: RequestInit = { method: 'GET' }
           if (Object.keys(injected).length) init.headers = { ...injected }
           const res = await fetchImpl(`${base}${path}${qs}`, init)
-          return await res.text()
+          return await readDispatchResult(res)
         }
         // Request-specific content-type wins over any injected content-type on conflict.
         const res = await fetchImpl(`${base}${path}`, {
@@ -78,7 +91,7 @@ export function buildToolHandlers(
           headers: { ...injected, 'content-type': 'application/json' },
           body: JSON.stringify(rest),
         })
-        return await res.text()
+        return await readDispatchResult(res)
       },
     })
   }

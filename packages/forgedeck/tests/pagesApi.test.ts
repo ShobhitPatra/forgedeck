@@ -130,3 +130,46 @@ describe('extractPagesApi', () => {
     })
   })
 })
+
+describe('extractPagesApi — auth-plumbing exclusion is annotation-aware', () => {
+  const plumbingFile = '/pages/api/auth/[...nextauth].ts'
+
+  it('still excludes an un-annotated catch-all nextauth route', () => {
+    const { actions, skipped } = extractPagesApi(
+      fakeLoaded(
+        { [plumbingFile]: `export default function auth(req, res) { return null }` },
+        { pagesApiDir: '/pages/api' },
+      ),
+    )
+    expect(actions).toEqual([])
+    expect(skipped).toContainEqual({
+      file: 'pages/api/auth/[...nextauth].ts',
+      reason: 'auth plumbing route, excluded',
+    })
+  })
+
+  it('extracts an annotated catch-all nextauth route with override evidence', () => {
+    const { actions, skipped } = extractPagesApi(
+      fakeLoaded(
+        {
+          [plumbingFile]: `
+            /**
+             * @agent description sign in with a magic link
+             */
+            export default function auth(req, res) { return db.session.create({ data: {} }) }
+          `,
+        },
+        { pagesApiDir: '/pages/api' },
+      ),
+    )
+    expect(actions.length).toBeGreaterThan(0)
+    for (const a of actions) {
+      expect(a.evidence).toContain('auth plumbing exclusion overridden by annotations')
+    }
+    expect(actions[0].description).toBe('sign in with a magic link')
+    expect(skipped).not.toContainEqual({
+      file: 'pages/api/auth/[...nextauth].ts',
+      reason: 'auth plumbing route, excluded',
+    })
+  })
+})
