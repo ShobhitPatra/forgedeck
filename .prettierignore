@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist
+node_modules
+docs
+.claude
+tests/fixtures/mini-shop/package-lock.json

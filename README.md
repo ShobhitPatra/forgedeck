@@ -2,12 +2,12 @@
 
 **Compile your app into an MCP server.**
 
-Modern applications are built for humans. AI agents interact with them by scraping HTML, executing JavaScript, and guessing workflows — expensive, slow, and unreliable. Applications expose *implementation*, not *intent*.
+Modern applications are built for humans. AI agents interact with them by scraping HTML, executing JavaScript, and guessing workflows — expensive, slow, and unreliable. Applications expose _implementation_, not _intent_.
 
 Forgedeck is a compiler that translates applications into machine-understandable semantics. Point it at your codebase, run one command, and it emits:
 
 - **`.agent/` bundle** — a navigable tree of Markdown describing your app's entities, actions, workflows, and effects, plus a `tools.json` manifest
-- **A runnable MCP server** — so agents like Claude can correctly *operate* your app instead of reverse-engineering its DOM
+- **A runnable MCP server** — so agents like Claude can correctly _operate_ your app instead of reverse-engineering its DOM
 - **A coverage report** — what the compiler understood, and the few places it needs your help
 
 ```bash
