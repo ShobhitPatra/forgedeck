@@ -25,4 +25,22 @@ describe('compile', () => {
     expect(kinds.has('pages-api')).toBe(true)
     expect(hybrid.entities.map((e) => e.name).sort()).toEqual(['Document', 'Product', 'User'])
   })
+
+  it('resolves cross surface name collisions deterministically with a skip log', () => {
+    const ir = compile('tests/fixtures/collision-shop')
+    // app router and pages router both yield get_documents/post_documents; the
+    // pages surface (sorts later by sourceFile) gets the _pages surface suffix.
+    expect(ir.actions.map((a) => a.name).sort()).toEqual([
+      'get_documents',
+      'get_documents_pages',
+      'post_documents',
+      'post_documents_pages',
+    ])
+    expect(ir.actions.find((a) => a.name === 'get_documents')!.kind).toBe('route')
+    expect(ir.actions.find((a) => a.name === 'get_documents_pages')!.kind).toBe('pages-api')
+    expect(ir.coverage.skipped).toContainEqual({
+      file: 'pages/api/documents.ts',
+      reason: 'action name collision resolved: get_documents -> get_documents_pages',
+    })
+  })
 })
