@@ -90,6 +90,75 @@ describe('extractInputs', () => {
       { name: 'q', type: 'string', required: false, location: 'query' },
     ])
   })
+  it('merges multiple parsed schemas keeping each schema location', () => {
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const q = z.object({ page: z.coerce.number() })
+      const b = z.object({ name: z.string() })
+      export async function POST(req: Request) {
+        const query = q.parse(Object.fromEntries(new URL(req.url).searchParams))
+        const body = b.parse(await req.json())
+        return { query, body }
+      }
+    `)
+    const bodyText = sf.getFunction('POST')!.getBodyText()!
+    const fields = extractInputs(sf, bodyText)
+    expect(fields).toContainEqual({
+      name: 'page',
+      type: 'number',
+      required: true,
+      location: 'query',
+    })
+    expect(fields).toContainEqual({
+      name: 'name',
+      type: 'string',
+      required: true,
+      location: 'body',
+    })
+  })
+  it('resolves an extended schema', () => {
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const base = z.object({ email: z.string(), theme: z.string().optional() })
+      const extended = base.extend({ notifyOnShare: z.boolean() })
+      export async function POST(req: Request) { return extended.parse(await req.json()) }
+    `)
+    const body = sf.getFunction('POST')!.getBodyText()!
+    expect(extractInputs(sf, body)).toEqual([
+      { name: 'email', type: 'string', required: true, location: 'body' },
+      { name: 'theme', type: 'string', required: false, location: 'body' },
+      { name: 'notifyOnShare', type: 'boolean', required: true, location: 'body' },
+    ])
+  })
+  it('resolves merge, pick, omit and partial compositions', () => {
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const base = z.object({ email: z.string(), theme: z.string().optional() })
+      const extra = z.object({ age: z.number() })
+      const merged = base.merge(extra)
+      const picked = base.pick({ email: true })
+      const omitted = base.omit({ theme: true })
+      const partialed = extra.partial()
+    `)
+    // merge = union of both objects
+    expect(extractInputs(sf, `merged.parse(x)`)).toEqual([
+      { name: 'email', type: 'string', required: true, location: 'body' },
+      { name: 'theme', type: 'string', required: false, location: 'body' },
+      { name: 'age', type: 'number', required: true, location: 'body' },
+    ])
+    // pick = kept keys only
+    expect(extractInputs(sf, `picked.parse(x)`)).toEqual([
+      { name: 'email', type: 'string', required: true, location: 'body' },
+    ])
+    // omit = complement of masked keys
+    expect(extractInputs(sf, `omitted.parse(x)`)).toEqual([
+      { name: 'email', type: 'string', required: true, location: 'body' },
+    ])
+    // partial = every field optional
+    expect(extractInputs(sf, `partialed.parse(x)`)).toEqual([
+      { name: 'age', type: 'number', required: false, location: 'body' },
+    ])
+  })
   it('extracts bare req query destructuring', () => {
     const sf = fileFrom(`
       export default async function handler(req, res) {
