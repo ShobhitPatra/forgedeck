@@ -1,0 +1,22 @@
+{
+  "name": "mini-shop",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3005",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.8.2",
+    "next": "15.3.2",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "prisma": "6.8.2",
+    "tsx": "4.19.2",
+    "typescript": "5.8.3",
+    "@types/react": "19.1.0",
+    "@types/node": "22.15.3"
+  }
+}
