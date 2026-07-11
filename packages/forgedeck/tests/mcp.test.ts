@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildToolHandlers, parseTargetHeaders } from '../src/mcp/server'
 import type { ToolsManifest } from '../src/emit/tools'
 
@@ -134,6 +134,70 @@ describe('buildToolHandlers', () => {
       'content-type': 'application/json',
       authorization: 'Bearer secret',
     })
+  })
+})
+
+describe('buildToolHandlers — bridge dispatch for server actions', () => {
+  const savedToken = process.env.FORGEDECK_BRIDGE_TOKEN
+  afterEach(() => {
+    if (savedToken === undefined) delete process.env.FORGEDECK_BRIDGE_TOKEN
+    else process.env.FORGEDECK_BRIDGE_TOKEN = savedToken
+  })
+
+  const actionManifest = (enabled: boolean): ToolsManifest => ({
+    app: 'hybrid-shop',
+    tools: [
+      {
+        name: 'delete_survey',
+        description: 'server action deleteSurvey',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        kind: 'server-action',
+        effect: 'irreversible',
+        enabled,
+      },
+    ],
+  })
+
+  it('dispatches an enabled server action to its bridge URL with the token header and JSON body', async () => {
+    process.env.FORGEDECK_BRIDGE_TOKEN = 'secret-token'
+    const fetchMock = vi.fn(async () => new Response('{"deleted":"s1"}'))
+    const handlers = buildToolHandlers(
+      actionManifest(true),
+      'http://localhost:3005/',
+      fetchMock as unknown as typeof fetch,
+      { headers: { authorization: 'Bearer creds' } },
+    )
+    expect([...handlers.keys()]).toEqual(['delete_survey'])
+    const out = await handlers.get('delete_survey')!.run({ id: 's1' })
+    expect(out).toBe('{"deleted":"s1"}')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://localhost:3005/api/.agent/delete_survey')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).body).toBe(JSON.stringify({ id: 's1' }))
+    expect((init as RequestInit).headers).toMatchObject({
+      'x-forgedeck-bridge-token': 'secret-token',
+      authorization: 'Bearer creds',
+      'content-type': 'application/json',
+    })
+  })
+
+  it('omits the token header when FORGEDECK_BRIDGE_TOKEN is unset', async () => {
+    delete process.env.FORGEDECK_BRIDGE_TOKEN
+    const fetchMock = vi.fn(async () => new Response('{}'))
+    const handlers = buildToolHandlers(
+      actionManifest(true),
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+    )
+    await handlers.get('delete_survey')!.run({ id: 's1' })
+    const [, init] = fetchMock.mock.calls[0]
+    expect((init as RequestInit).headers).not.toHaveProperty('x-forgedeck-bridge-token')
+  })
+
+  it('does not register a disabled server action', () => {
+    const handlers = buildToolHandlers(actionManifest(false), 'http://localhost:3005')
+    expect(handlers.has('delete_survey')).toBe(false)
+    expect([...handlers.keys()]).toEqual([])
   })
 })
 

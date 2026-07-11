@@ -18,10 +18,39 @@ export function buildToolHandlers(
   >()
 
   for (const def of manifest.tools) {
+    if (!def.enabled) continue
+
+    // `server-action` tools have no HTTP address of their own: an enabled one is only
+    // enabled because the config allowlist deliberately enabled it, which means Task 3
+    // generated a bridge shim at `/api/.agent/<name>`. Dispatch POSTs there, carrying
+    // the shared secret in `x-forgedeck-bridge-token` (read from FORGEDECK_BRIDGE_TOKEN
+    // at call time) so the shim's lock-2 gate passes. The token is merged OVER any
+    // injected credential headers so the env value is authoritative for its own key.
+    if (def.kind === 'server-action') {
+      handlers.set(def.name, {
+        def,
+        async run(args) {
+          const base = targetUrl.replace(/\/$/, '')
+          const token = process.env.FORGEDECK_BRIDGE_TOKEN
+          const headers: Record<string, string> = {
+            ...injected,
+            'content-type': 'application/json',
+          }
+          if (token) headers['x-forgedeck-bridge-token'] = token
+          const res = await fetchImpl(`${base}/api/.agent/${def.name}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(args),
+          })
+          return await res.text()
+        },
+      })
+      continue
+    }
+
     // Both `route` and `pages-api` tools are plain HTTP endpoints addressable by
-    // method+path, so both dispatch through this proxy. `server-action` tools have
-    // no HTTP address of their own and are handled by bridge dispatch (Task 4).
-    if (!def.enabled || (def.kind !== 'route' && def.kind !== 'pages-api')) continue
+    // method+path, so both dispatch through this proxy.
+    if (def.kind !== 'route' && def.kind !== 'pages-api') continue
     if (!def.path || !def.method) continue
     handlers.set(def.name, {
       def,
