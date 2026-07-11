@@ -58,14 +58,46 @@ describe('classifyEffect', () => {
     expect(r.entitiesTouched).toEqual([])
     expect(r.external).toContain('email')
   })
-  it('flags an unresolved awaited call as conservative write', () => {
+  it('recognises the wrapped prisma.client accessor as a read with written-form evidence', () => {
+    const r = classifyEffect('const rows = await prisma.client.document.findMany()', {
+      method: 'GET',
+    })
+    expect(r).toMatchObject({ effect: 'read', entitiesTouched: ['Document'] })
+    expect(r.evidence).toContain('effect read via prisma.client.document.findMany')
+  })
+  it('recognises the wrapped db.client accessor for writes', () => {
+    const r = classifyEffect('await db.client.order.create({ data })', { method: 'POST' })
+    expect(r).toMatchObject({ effect: 'write', entitiesTouched: ['Order'] })
+    expect(r.evidence).toContain('effect write via db.client.order.create')
+  })
+  it('relaxes an unresolved awaited call in a GET handler to read, evidence unverified', () => {
     const project = new Project({ useInMemoryFileSystem: true })
     const sf = project.createSourceFile(
       '/app/api/y/route.ts',
       `export async function GET() { await mysteryHelper() }`,
     )
     const r = classifyEffect(sf.getFunction('GET')!.getBodyText()!, { method: 'GET', sf })
+    expect(r.effect).toBe('read')
+    expect(r.evidence.join(' ')).toContain('unresolved call mysteryHelper, unverified')
+  })
+  it('keeps the conservative write default for an unresolved awaited call under a non GET method', () => {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sf = project.createSourceFile(
+      '/app/api/z/route.ts',
+      `export async function POST() { await mysteryHelper() }`,
+    )
+    const r = classifyEffect(sf.getFunction('POST')!.getBodyText()!, { method: 'POST', sf })
     expect(r.effect).toBe('write')
     expect(r.evidence.join(' ')).toContain('unresolved call mysteryHelper, conservative')
+  })
+  it('does not relax a GET handler that carries any other write signal', () => {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sf = project.createSourceFile(
+      '/app/api/w/route.ts',
+      `export async function GET() { await prisma.order.create({ data: {} }); await mysteryHelper() }`,
+    )
+    const r = classifyEffect(sf.getFunction('GET')!.getBodyText()!, { method: 'GET', sf })
+    expect(r.effect).toBe('write')
+    expect(r.entitiesTouched).toContain('Order')
   })
 })

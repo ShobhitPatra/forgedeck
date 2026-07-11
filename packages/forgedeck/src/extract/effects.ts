@@ -12,8 +12,13 @@ type FnLike = FunctionDeclaration | ArrowFunction | FunctionExpression
 const WRITE_OPS = ['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 const READ_OPS = ['findMany', 'findUnique', 'findFirst', 'count', 'aggregate', 'groupBy']
 const WRITE_SET = new Set(WRITE_OPS)
+// `<client>[.client].<model>.<op>()` — the optional `.client` segment recognises
+// the wrapped-accessor idiom (`prisma.client.document.findMany`, the umami shape)
+// identically to a direct call; group 2 preserves the written `.client` so the
+// evidence keeps the source form. The no-sf regex fallback is thus effectively
+// `(?:prisma|db)(?:\.client)?\.` once isDBClient gates the base name.
 const CLIENT_OP = new RegExp(
-  `\\b(\\w+)\\.(\\w+)\\.(${[...WRITE_OPS, ...READ_OPS].join('|')})\\b`,
+  `\\b(\\w+)((?:\\.client)?)\\.(\\w+)\\.(${[...WRITE_OPS, ...READ_OPS].join('|')})\\b`,
   'g',
 )
 
@@ -102,6 +107,7 @@ interface Acc {
   external: Set<string>
   evidence: string[]
   unresolved: boolean
+  getMode: boolean
 }
 
 // `prisma.$transaction(async (tx) => ...)` — the callback param is a scoped DB
@@ -214,11 +220,13 @@ function scan(
   const txParams = collectTxParams(text)
 
   for (const m of text.matchAll(CLIENT_OP)) {
-    const [, client, model, op] = m
+    const [, client, clientSuffix, model, op] = m
     if (!isDBClient(client, sf, txParams)) continue
     const isWrite = WRITE_SET.has(op)
     ;(isWrite ? acc.writes : acc.reads).add(cap(model))
-    acc.evidence.push(`effect ${isWrite ? 'write' : 'read'} via ${prefix}${client}.${model}.${op}`)
+    acc.evidence.push(
+      `effect ${isWrite ? 'write' : 'read'} via ${prefix}${client}${clientSuffix}.${model}.${op}`,
+    )
   }
 
   for (const ext of detectExternal(text)) {
@@ -238,7 +246,10 @@ function scan(
       const body = fn.getBody()?.getText() ?? fn.getText()
       scan(body, fn.getSourceFile(), [...chain, name], depth + 1, visited, acc)
     } else if (awaited) {
-      acc.evidence.push(`unresolved call ${name}, conservative`)
+      // Under the bounded GET relaxation the call is recorded as `unverified` (it
+      // does not force write for a GET with no other write signal); elsewhere it
+      // stays the conservative write signal. Either way the trail is preserved.
+      acc.evidence.push(`unresolved call ${name}, ${acc.getMode ? 'unverified' : 'conservative'}`)
       acc.unresolved = true
     }
   }
@@ -249,8 +260,16 @@ function resolveEffect(acc: Acc, method: string | undefined): Effect {
   const m = method?.toUpperCase()
   if (m && m !== 'GET') return 'write'
   if (acc.reads.size > 0) return 'read'
-  if (acc.unresolved) return 'write'
+  // Bounded GET relaxation (deliberate, signed-off amendment to uncertainty-means-
+  // write): an HTTP GET with no write signal anywhere in the resolved graph — no
+  // client writes, no external taxonomy hit — reads even when it also contains an
+  // unresolved call. HTTP GET carries read semantics; a GET that secretly mutates
+  // is an app defect the compiler cannot own, and every unresolved call is still
+  // recorded in evidence as `unverified` so the auditability is not lost. Server
+  // actions and non-GET methods (handled above) keep the conservative default.
   if (m === 'GET') return 'read'
+  // Method absent (e.g. server actions): an unresolved awaited call, or no signal
+  // at all, stays a conservative write.
   return 'write'
 }
 
@@ -268,6 +287,7 @@ export function classifyEffect(
     external: new Set(),
     evidence: [],
     unresolved: false,
+    getMode: opts.method?.toUpperCase() === 'GET',
   }
   scan(bodyText, opts.sf, [], opts.depth ?? 0, new Set(), acc)
   return {
