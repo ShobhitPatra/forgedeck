@@ -1,0 +1,4 @@
+model Widget {
+  id    String @id
+  label String
+}
