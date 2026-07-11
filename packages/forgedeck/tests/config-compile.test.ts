@@ -140,7 +140,7 @@ describe('compile applies exclude globs before extraction', () => {
   })
 })
 
-describe('hybrid-shop fixture config enables exactly post_documents', () => {
+describe('hybrid-shop fixture config enables post_documents and delete_survey', () => {
   let hybrid: SemanticIR
   let mini: SemanticIR
   beforeAll(async () => {
@@ -153,9 +153,14 @@ describe('hybrid-shop fixture config enables exactly post_documents', () => {
     expect(post.evidence).toContain('enabled via config allowlist (base)')
   })
   it('leaves every other mutation disabled', () => {
+    // The committed config allowlists exactly these two mutations (post_documents +
+    // delete_survey); every other write stays disabled.
     expect(
-      hybrid.actions.filter((a) => a.effect !== 'read' && a.enabled).map((a) => a.name),
-    ).toEqual(['post_documents'])
+      hybrid.actions
+        .filter((a) => a.effect !== 'read' && a.enabled)
+        .map((a) => a.name)
+        .sort(),
+    ).toEqual(['delete_survey', 'post_documents'])
   })
   it('mini-shop has no config: reads stay read-default, no config-allowlist, no env line', () => {
     expect(mini.coverage.environment).toBeUndefined()

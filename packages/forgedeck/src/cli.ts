@@ -5,7 +5,9 @@ import { Command } from 'commander'
 import { compile } from './compile.js'
 import { emitBundle } from './emit/bundle.js'
 import { renderCoverage } from './emit/coverage.js'
+import { generateBridges } from './emit/bridges.js'
 import { startMcpServer } from './mcp/server.js'
+import { loadConfig } from './config/load.js'
 import { ConfigError } from './config/schema.js'
 
 const program = new Command()
@@ -18,9 +20,26 @@ program
   .action(async (dir: string, opts: { out?: string }) => {
     const projectDir = resolve(dir)
     const outDir = resolve(opts.out ?? join(projectDir, '.agent'))
-    let ir
     try {
-      ir = await compile(projectDir)
+      const ir = await compile(projectDir)
+      const config = await loadConfig(projectDir)
+      const written = emitBundle(ir, outDir)
+      // Bridges are written into the PROJECT (real Next.js routes), not the bundle out
+      // dir, so this runs AFTER the emitters. Generation is gated on `config.bridges`;
+      // a lock-4 coverage failure throws ConfigError and is handled below like any
+      // other config error.
+      const bridges = generateBridges(ir, config, projectDir, { write: config?.bridges === true })
+      // Fold the bridge generated/removed notes into the coverage report.
+      ir.coverage.skipped.push(...bridges.coverage)
+      const report = renderCoverage(ir)
+      writeFileSync(join(outDir, 'coverage.txt'), report)
+      console.log(report)
+      console.log(`\nwrote ${written.length} files to ${outDir}`)
+      if (bridges.generated.length || bridges.removed.length) {
+        console.log(
+          `bridges: ${bridges.generated.length} generated, ${bridges.removed.length} removed`,
+        )
+      }
     } catch (err) {
       // A config error is the one deliberate build-breaking exception: print why and
       // exit non-zero. Every other error keeps its existing (thrown) behavior.
@@ -32,11 +51,6 @@ program
       }
       throw err
     }
-    const written = emitBundle(ir, outDir)
-    const report = renderCoverage(ir)
-    writeFileSync(join(outDir, 'coverage.txt'), report)
-    console.log(report)
-    console.log(`\nwrote ${written.length} files to ${outDir}`)
   })
 
 program

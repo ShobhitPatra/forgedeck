@@ -17,11 +17,13 @@ describe('annotation semantics on hybrid-shop', () => {
     reasons = ir.coverage.skipped.map((s) => s.reason)
   })
 
-  it('delete_survey escalates write -> irreversible, stays disabled, with precondition + receipts', () => {
+  it('delete_survey escalates write -> irreversible, enabled via config allowlist, with precondition + receipts', () => {
     const a = byName('delete_survey')!
-    // baseline: effect write (from prisma.document.delete), auth required
+    // baseline: effect write (from prisma.document.delete), auth required.
+    // The committed config allowlists delete_survey, so it is enabled with a receipt.
     expect(a.effect).toBe('irreversible')
-    expect(a.enabled).toBe(false)
+    expect(a.enabled).toBe(true)
+    expect(a.enabledBy).toBe('config-allowlist')
     expect(a.preconditions).toEqual(['account must be in good standing'])
     expect(a.evidence).toContain('effect write via prisma.document.delete') // evidence preserved
     expect(a.evidence).toContain('effect irreversible via @agent tag (escalation from write)')
