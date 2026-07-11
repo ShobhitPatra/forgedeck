@@ -13,6 +13,10 @@
     "./bridge": {
       "types": "./dist/bridge.d.ts",
       "default": "./dist/bridge.js"
+    },
+    "./next": {
+      "types": "./dist/next/plugin.d.ts",
+      "default": "./dist/next/plugin.js"
     }
   },
   "bin": {
