@@ -1,0 +1,5 @@
+model Product {
+  id    String @id
+  name  String
+  price Int
+}

@@ -1,0 +1,12 @@
+model Document {
+  id      String  @id
+  title   String
+  ownerId String
+  owner   User    @relation(fields: [ownerId], references: [id])
+}
+
+model User {
+  id        String     @id
+  email     String
+  documents Document[]
+}
