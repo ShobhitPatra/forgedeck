@@ -54,6 +54,64 @@ export const removeIt = authenticatedActionClient.action(async (input: { id: str
     expect(remove.evidence).toContain('wrapped server action via authenticatedActionClient')
   })
 
+  it('unwraps an inputSchema().action() inline chain (formbricks idiom)', () => {
+    const { actions } = extractServerActions(
+      fakeLoaded({
+        '/app/actions/reports.ts': `'use server'
+export const listReports = client.inputSchema(z).action(async (input: { id: string }) => {
+  return db.report.findMany({ where: { id: input.id } })
+})`,
+      }),
+    )
+    const list = actions.find((a) => a.name === 'list_reports')!
+    expect(list).toMatchObject({ kind: 'server-action', effect: 'read', auth: 'unknown' })
+    expect(list.evidence).toContain('wrapped server action via client')
+  })
+
+  it('resolves an imported handler passed to a terminal .action()', () => {
+    const { actions } = extractServerActions(
+      fakeLoaded({
+        '/app/actions/wired.ts': `'use server'
+import { removeReport } from './handlers'
+export const deleteReport = authenticatedActionClient.inputSchema(z).action(removeReport)`,
+        '/app/actions/handlers.ts': `export const removeReport = async (input: { id: string }) => {
+  return db.report.delete({ where: { id: input.id } })
+}`,
+      }),
+    )
+    const del = actions.find((a) => a.name === 'delete_report')!
+    expect(del).toMatchObject({ effect: 'write', enabled: false, auth: 'required' })
+    expect(del.evidence).toContain('wrapped server action via authenticatedActionClient')
+  })
+
+  it('unwraps a deep call-and-property chain terminating in .action()', () => {
+    const { actions } = extractServerActions(
+      fakeLoaded({
+        '/app/actions/deep.ts': `'use server'
+export const deepRead = a.b(1).c().action(async (input: { id: string }) => {
+  return db.report.findMany({ where: { id: input.id } })
+})`,
+      }),
+    )
+    const deep = actions.find((a) => a.name === 'deep_read')!
+    expect(deep).toMatchObject({ kind: 'server-action', effect: 'read' })
+    expect(deep.evidence).toContain('wrapped server action via a')
+  })
+
+  it('recognizes the action call structurally even with a trailing chain link', () => {
+    const { actions } = extractServerActions(
+      fakeLoaded({
+        '/app/actions/trailing.ts': `'use server'
+export const trailingRead = client.inputSchema(z).action(async (input: { id: string }) => {
+  return db.report.findMany({ where: { id: input.id } })
+}).metadata({ name: 'trailingRead' })`,
+      }),
+    )
+    const trailing = actions.find((a) => a.name === 'trailing_read')!
+    expect(trailing).toMatchObject({ kind: 'server-action', effect: 'read' })
+    expect(trailing.evidence).toContain('wrapped server action via client')
+  })
+
   it('skip-logs a chained action whose handler cannot be resolved', () => {
     const { skipped } = extractServerActions(
       fakeLoaded({

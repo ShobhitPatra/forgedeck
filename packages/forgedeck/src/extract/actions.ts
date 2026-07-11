@@ -5,7 +5,7 @@ import { fnToName } from '../ir/names.js'
 import { classifyEffect } from './effects.js'
 import { extractInputs } from './inputs.js'
 import { detectHandlerAuth, resolveAuth } from './auth.js'
-import { asFnLike, chainRoot, resolveFn } from './unwrap.js'
+import { asFnLike, resolveFn, terminalActionCall } from './unwrap.js'
 
 // A client root whose name announces authentication (`authenticatedActionClient`,
 // `authorizedClient`, `protectedProcedure`, or anything containing `auth`) makes
@@ -72,14 +72,16 @@ export function extractServerActions(loaded: LoadedProject): {
         })
         continue
       }
-      // Wrapped server action: `export const <name> = <chain>.action(<fn>)`. The
-      // terminal `.action()` argument is the handler; the chain ROOT is recorded as
-      // evidence and, when its name signals auth, forces `required` (contract rule 2).
+      // Wrapped server action: `export const <name> = <chain>.action(<fn>)` where
+      // <chain> is ANY property/call chain. The terminal `.action()` call is found
+      // structurally regardless of chain shape; its argument is the handler; the
+      // chain ROOT is recorded as evidence and, when its name signals auth, forces
+      // `required` (server actions contract rule 2).
       if (init && Node.isCallExpression(init)) {
-        const callee = init.getExpression()
-        if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'action') continue
-        const root = chainRoot(callee.getExpression()) ?? callee.getExpression().getText()
-        const arg = init.getArguments()[0]
+        const found = terminalActionCall(init)
+        if (!found) continue
+        const { call, root } = found
+        const arg = call.getArguments()[0]
         const handler =
           asFnLike(arg) ??
           (arg && Node.isIdentifier(arg) ? resolveFn(sf, arg.getText()) : undefined)
