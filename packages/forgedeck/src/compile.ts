@@ -7,7 +7,7 @@ import {
   type SemanticIR,
 } from './ir/types.js'
 import { loadProject } from './load/project.js'
-import { extractEntities } from './extract/entities.js'
+import { extractEntitiesWithSource } from './extract/entities.js'
 import { extractRoutes } from './extract/routes.js'
 import { extractServerActions } from './extract/actions.js'
 import { extractPagesApi } from './extract/pagesApi.js'
@@ -96,7 +96,7 @@ export function applyPrismaTypes(actions: ActionIR[], entities: EntityIR[]): voi
 
 export function compile(projectDir: string): SemanticIR {
   const loaded = loadProject(projectDir)
-  const entities = extractEntities(loaded.rootDir)
+  const { entities, workspaceNote } = extractEntitiesWithSource(loaded.rootDir)
   const matchers = loadMiddlewareMatchers(loaded)
   const routes = extractRoutes(loaded, matchers)
   const serverActions = extractServerActions(loaded)
@@ -116,6 +116,7 @@ export function compile(projectDir: string): SemanticIR {
         ...serverActions.skipped,
         ...pagesApi.skipped,
         ...collisionSkips,
+        ...(workspaceNote ? [workspaceNote] : []),
       ],
     },
   })
