@@ -1,4 +1,4 @@
-import { Node, SyntaxKind, type SourceFile, type VariableDeclaration } from 'ts-morph'
+import { Node, type Expression, type SourceFile, type VariableDeclaration } from 'ts-morph'
 import type { InputField } from '../ir/types.js'
 
 const ZOD_TYPE: Record<string, InputField['type']> = {
@@ -7,27 +7,29 @@ const ZOD_TYPE: Record<string, InputField['type']> = {
   boolean: 'boolean',
 }
 
-function findSchemaDecl(sf: SourceFile, name: string): VariableDeclaration | undefined {
+// A resolved schema field before a parse-call location is attached.
+type RawField = Omit<InputField, 'location'>
+
+const MAX_DEPTH = 4
+
+// Locate a schema declaration by name: a local `const`, else a named import
+// whose target file we can resolve. No initializer-shape restriction — the
+// initializer may be a plain `z.object` or a composition chain.
+function findDecl(sf: SourceFile, name: string): VariableDeclaration | undefined {
   const local = sf.getVariableDeclaration(name)
-  if (local && (local.getInitializer()?.getText() ?? '').startsWith('z.object(')) return local
+  if (local) return local
   for (const imp of sf.getImportDeclarations()) {
     if (!imp.getNamedImports().some((n) => n.getName() === name)) continue
-    const target = imp.getModuleSpecifierSourceFile()
-    const decl = target?.getVariableDeclaration(name)
-    if (decl && (decl.getInitializer()?.getText() ?? '').startsWith('z.object(')) return decl
+    const decl = imp.getModuleSpecifierSourceFile()?.getVariableDeclaration(name)
+    if (decl) return decl
   }
   return undefined
 }
 
-function fieldsFromZodObject(
-  decl: VariableDeclaration,
-  location: InputField['location'],
-): InputField[] {
-  const call = decl.getInitializerIfKind(SyntaxKind.CallExpression)
-  const objArg = call?.getArguments()[0]
-  if (!objArg || !Node.isObjectLiteralExpression(objArg)) return []
-  const fields: InputField[] = []
-  for (const prop of objArg.getProperties()) {
+function fieldsFromObjectLiteral(arg: Node | undefined): RawField[] {
+  if (!arg || !Node.isObjectLiteralExpression(arg)) return []
+  const fields: RawField[] = []
+  for (const prop of arg.getProperties()) {
     if (!Node.isPropertyAssignment(prop)) continue
     const chainText = prop.getInitializer()?.getText() ?? ''
     const base =
@@ -39,10 +41,84 @@ function fieldsFromZodObject(
       name: prop.getName(),
       type: ZOD_TYPE[base] ?? 'unknown',
       required: !/\.(optional|default)\(/.test(chainText),
-      location,
     })
   }
   return fields
+}
+
+// Union of two field lists; a later field with a duplicate name wins in place.
+function mergeFields(base: RawField[], add: RawField[]): RawField[] {
+  const out = [...base]
+  for (const f of add) {
+    const idx = out.findIndex((x) => x.name === f.name)
+    if (idx >= 0) out[idx] = f
+    else out.push(f)
+  }
+  return out
+}
+
+// Keys of an object literal whose value is `true` (the `.pick`/`.omit` mask).
+function keysWithTrue(arg: Node | undefined): Set<string> {
+  const keys = new Set<string>()
+  if (!arg || !Node.isObjectLiteralExpression(arg)) return keys
+  for (const prop of arg.getProperties()) {
+    if (Node.isPropertyAssignment(prop) && prop.getInitializer()?.getText() === 'true') {
+      keys.add(prop.getName())
+    }
+  }
+  return keys
+}
+
+// Resolve the fields declared by a schema initializer, following composition
+// (.extend/.merge/.pick/.omit/.partial) across local and imported bases.
+function fieldsFromInitializer(
+  init: Expression | undefined,
+  sf: SourceFile,
+  depth: number,
+  seen: Set<string>,
+): RawField[] {
+  if (!init) return []
+  if (Node.isIdentifier(init)) return resolveSchema(init.getText(), sf, depth + 1, seen)
+  if (!Node.isCallExpression(init)) return []
+
+  const callee = init.getExpression()
+  if (!Node.isPropertyAccessExpression(callee)) return []
+  const method = callee.getName()
+  const receiver = callee.getExpression()
+  const args = init.getArguments()
+
+  if (method === 'object' && receiver.getText() === 'z') {
+    return fieldsFromObjectLiteral(args[0])
+  }
+  if (method === 'extend' || method === 'merge') {
+    const base = fieldsFromInitializer(receiver, sf, depth, seen)
+    const add =
+      method === 'extend'
+        ? fieldsFromObjectLiteral(args[0])
+        : fieldsFromInitializer(args[0] as Expression, sf, depth + 1, seen)
+    return mergeFields(base, add)
+  }
+  if (method === 'pick' || method === 'omit') {
+    const base = fieldsFromInitializer(receiver, sf, depth, seen)
+    const keys = keysWithTrue(args[0])
+    return method === 'pick'
+      ? base.filter((f) => keys.has(f.name))
+      : base.filter((f) => !keys.has(f.name))
+  }
+  if (method === 'partial') {
+    return fieldsFromInitializer(receiver, sf, depth, seen).map((f) => ({ ...f, required: false }))
+  }
+  // Any other chained method (.strict, .refine, ...) is transparent to fields.
+  return fieldsFromInitializer(receiver, sf, depth, seen)
+}
+
+// Resolve a named schema to its fields; depth-bounded and cycle-safe.
+function resolveSchema(name: string, sf: SourceFile, depth: number, seen: Set<string>): RawField[] {
+  if (depth > MAX_DEPTH || seen.has(name)) return []
+  seen.add(name)
+  const decl = findDecl(sf, name)
+  if (!decl) return []
+  return fieldsFromInitializer(decl.getInitializer(), decl.getSourceFile(), depth, seen)
 }
 
 function locationForParseCall(handlerBodyText: string, schemaName: string): InputField['location'] {
@@ -54,11 +130,22 @@ function locationForParseCall(handlerBodyText: string, schemaName: string): Inpu
 
 export function extractInputs(sourceFile: SourceFile, handlerBodyText: string): InputField[] {
   const used = [...handlerBodyText.matchAll(/\b(\w+)\.(?:safeParse|parse)\(/g)].map((m) => m[1])
-  for (const name of used) {
-    if (name === 'JSON') continue
-    const decl = findSchemaDecl(sourceFile, name)
-    if (decl) return fieldsFromZodObject(decl, locationForParseCall(handlerBodyText, name))
+  const result: InputField[] = []
+  const names = new Set<string>()
+  for (const schemaName of used) {
+    if (schemaName === 'JSON') continue
+    const fields = resolveSchema(schemaName, sourceFile, 0, new Set())
+    if (fields.length === 0) continue
+    const location = locationForParseCall(handlerBodyText, schemaName)
+    // Multi-schema handlers merge; the first declaration of a name wins.
+    for (const f of fields) {
+      if (names.has(f.name)) continue
+      names.add(f.name)
+      result.push({ ...f, location })
+    }
   }
+  if (result.length > 0) return result
+
   const bare: InputField[] = []
   for (const src of ['query', 'body'] as const) {
     const m = handlerBodyText.match(new RegExp(`const\\s*\\{([^}]+)\\}\\s*=\\s*req\\.${src}`))

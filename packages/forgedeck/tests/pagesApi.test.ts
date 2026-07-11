@@ -36,6 +36,27 @@ describe('extractPagesApi', () => {
     expect(post.effect).toBe('write')
     expect(post.entitiesTouched).toEqual(['Document'])
   })
+  it('resolves extended schemas across files', () => {
+    const put = actions.find((a) => a.name === 'put_settings')!
+    expect(put.inputs).toContainEqual({
+      name: 'email',
+      type: 'string',
+      required: true,
+      location: 'body',
+    })
+    expect(put.inputs).toContainEqual({
+      name: 'theme',
+      type: 'string',
+      required: false,
+      location: 'body',
+    })
+    expect(put.inputs).toContainEqual({
+      name: 'notifyOnShare',
+      type: 'boolean',
+      required: true,
+      location: 'body',
+    })
+  })
   it('extracts handler map dispatch', () => {
     const { actions: mapActions } = extractPagesApi(
       fakeLoaded(

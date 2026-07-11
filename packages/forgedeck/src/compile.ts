@@ -1,4 +1,11 @@
-import { validateIR, type ActionIR, type CoverageItem, type SemanticIR } from './ir/types.js'
+import {
+  validateIR,
+  type ActionIR,
+  type CoverageItem,
+  type EntityIR,
+  type InputField,
+  type SemanticIR,
+} from './ir/types.js'
 import { loadProject } from './load/project.js'
 import { extractEntities } from './extract/entities.js'
 import { extractRoutes } from './extract/routes.js'
@@ -52,6 +59,40 @@ function resolveCollisions(actions: ActionIR[]): CoverageItem[] {
   return skips
 }
 
+// Prisma scalar type -> InputField type. The single place an app already
+// declares concrete field types, recovered for inputs the zod layer left unknown.
+const PRISMA_TYPE_MAP: Record<string, InputField['type']> = {
+  String: 'string',
+  Int: 'number',
+  Float: 'number',
+  Decimal: 'number',
+  Boolean: 'boolean',
+  DateTime: 'string',
+}
+
+// Post-pass: an `unknown` input whose name matches (case-insensitively) a field
+// on one of the action's touched entities is typed from the Prisma type map,
+// with an evidence receipt. Mutates inputs and evidence in place.
+export function applyPrismaTypes(actions: ActionIR[], entities: EntityIR[]): void {
+  const byName = new Map(entities.map((e) => [e.name, e]))
+  for (const action of actions) {
+    for (const input of action.inputs) {
+      if (input.type !== 'unknown') continue
+      for (const entName of action.entitiesTouched) {
+        const field = byName
+          .get(entName)
+          ?.fields.find((f) => f.name.toLowerCase() === input.name.toLowerCase())
+        if (!field) continue
+        const mapped = PRISMA_TYPE_MAP[field.type.replace(/\[\]$/, '')]
+        if (!mapped) continue
+        input.type = mapped
+        action.evidence.push(`input ${input.name} typed from prisma ${entName}.${field.name}`)
+        break
+      }
+    }
+  }
+}
+
 export function compile(projectDir: string): SemanticIR {
   const loaded = loadProject(projectDir)
   const entities = extractEntities(loaded.rootDir)
@@ -60,6 +101,7 @@ export function compile(projectDir: string): SemanticIR {
   const pagesApi = extractPagesApi(loaded)
   const actions = [...routes.actions, ...serverActions.actions, ...pagesApi.actions]
   const collisionSkips = resolveCollisions(actions)
+  applyPrismaTypes(actions, entities)
 
   return validateIR({
     app: { name: loaded.appName, framework: loaded.framework },

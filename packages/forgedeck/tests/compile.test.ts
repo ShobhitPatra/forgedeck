@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { compile } from '../src/compile'
+import { compile, applyPrismaTypes } from '../src/compile'
+import type { ActionIR, EntityIR } from '../src/ir/types'
 
 describe('compile', () => {
   const ir = compile('tests/fixtures/mini-shop')
@@ -42,5 +43,37 @@ describe('compile', () => {
       file: 'pages/api/documents.ts',
       reason: 'action name collision resolved: get_documents -> get_documents_pages',
     })
+  })
+
+  it('types unknown inputs from touched prisma entities with evidence', () => {
+    const actions: ActionIR[] = [
+      {
+        name: 'put_settings',
+        kind: 'pages-api',
+        method: 'PUT',
+        path: '/api/settings',
+        sourceFile: 'pages/api/settings.ts',
+        exportName: 'default',
+        description: 'PUT /api/settings',
+        inputs: [{ name: 'email', type: 'unknown', required: true, location: 'body' }],
+        effect: 'write',
+        entitiesTouched: ['User'],
+        enabled: false,
+        confidence: 'static',
+        auth: 'unknown',
+        evidence: [],
+      },
+    ]
+    const entities: EntityIR[] = [
+      {
+        name: 'User',
+        fields: [{ name: 'email', type: 'String', optional: false }],
+        relations: [],
+        sourceFile: 'prisma/schema/user.prisma',
+      },
+    ]
+    applyPrismaTypes(actions, entities)
+    expect(actions[0].inputs[0].type).toBe('string')
+    expect(actions[0].evidence).toContain('input email typed from prisma User.email')
   })
 })
