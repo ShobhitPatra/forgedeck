@@ -125,6 +125,18 @@ describe('extractRoutes hybrid-shop wrapped route integration', () => {
     })
     expect(survey.evidence).toContain('handler via wrapper withV1Wrapper')
   })
+  it('classifies get_stats through the wrapped prisma.client accessor with no unresolved evidence', () => {
+    const { actions } = extractRoutes(loadProject('tests/fixtures/hybrid-shop'))
+    const stats = actions.find((a) => a.name === 'get_stats')!
+    expect(stats).toMatchObject({
+      kind: 'route',
+      method: 'GET',
+      effect: 'read',
+      entitiesTouched: ['Document'],
+    })
+    expect(stats.evidence.join(' ')).toContain('prisma.client.document.findMany')
+    expect(stats.evidence.join(' ')).not.toContain('unresolved')
+  })
 })
 
 describe('extractRoutes path params', () => {
