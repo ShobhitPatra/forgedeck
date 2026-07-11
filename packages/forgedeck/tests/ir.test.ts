@@ -13,7 +13,7 @@ const minimal = {
       sourceFile: 'app/api/products/route.ts',
       exportName: 'GET',
       description: 'GET /api/products',
-      inputs: [],
+      inputs: [{ name: 'id', type: 'string', required: true, location: 'path' }],
       effect: 'read',
       entitiesTouched: ['Product'],
       enabled: true,
@@ -30,6 +30,17 @@ describe('validateIR', () => {
   it('rejects enabled write actions', () => {
     const bad = structuredClone(minimal)
     bad.actions[0].effect = 'write'
+    expect(() => validateIR(bad)).toThrow()
+  })
+  it('accepts hybrid framework and pages api kind', () => {
+    const hybrid = structuredClone(minimal)
+    hybrid.app.framework = 'nextjs-hybrid'
+    hybrid.actions[0].kind = 'pages-api'
+    expect(validateIR(hybrid).app.framework).toBe('nextjs-hybrid')
+  })
+  it('rejects an input without location', () => {
+    const bad = structuredClone(minimal)
+    delete (bad.actions[0].inputs[0] as Record<string, unknown>).location
     expect(() => validateIR(bad)).toThrow()
   })
 })

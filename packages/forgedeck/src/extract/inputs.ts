@@ -25,6 +25,7 @@ export function extractInputs(sourceFile: SourceFile, handlerBodyText: string): 
         name: fieldName,
         type: ZOD_TYPE[zodType] ?? 'unknown',
         required: !chain.includes('.optional()'),
+        location: 'body' as const,
       })
     }
     return fields

@@ -29,9 +29,9 @@ describe('extractRoutes', () => {
   it('extracts input contract for the write route', () => {
     const create = actions.find((a) => a.name === 'post_orders')!
     expect(create.inputs).toEqual([
-      { name: 'email', type: 'string', required: true },
-      { name: 'productId', type: 'string', required: true },
-      { name: 'quantity', type: 'number', required: true },
+      { name: 'email', type: 'string', required: true, location: 'body' },
+      { name: 'productId', type: 'string', required: true, location: 'body' },
+      { name: 'quantity', type: 'number', required: true, location: 'body' },
     ])
   })
 })

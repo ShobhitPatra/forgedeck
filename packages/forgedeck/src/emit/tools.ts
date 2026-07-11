@@ -4,7 +4,7 @@ export interface ToolDef {
   name: string
   description: string
   inputSchema: { type: 'object'; properties: Record<string, { type: string }>; required: string[] }
-  kind: 'route' | 'server-action'
+  kind: 'route' | 'server-action' | 'pages-api'
   method?: string
   path?: string
   effect: string
