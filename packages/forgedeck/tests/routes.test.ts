@@ -53,6 +53,80 @@ describe('extractRoutes arrow handlers', () => {
   })
 })
 
+describe('extractRoutes wrapped handlers', () => {
+  it('unwraps an object-literal handler wrapper and keeps auth unknown for a neutral wrapper', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/lib/db.ts': `export const prisma = {} as any`,
+        '/app/api/surveys/route.ts': `import { prisma } from '../../../lib/db'
+export const GET = withV1Wrapper({
+  handler: async () => Response.json(await prisma.document.findMany()),
+})`,
+      }),
+    )
+    expect(skipped).toEqual([])
+    const survey = actions.find((a) => a.name === 'get_surveys')!
+    expect(survey).toMatchObject({
+      method: 'GET',
+      effect: 'read',
+      enabled: true,
+      entitiesTouched: ['Document'],
+      auth: 'unknown',
+    })
+    expect(survey.evidence).toContain('handler via wrapper withV1Wrapper')
+  })
+
+  it('unwraps an identifier handler wrapper resolved locally', () => {
+    const { actions } = extractRoutes(
+      fakeLoaded({
+        '/app/api/reports/route.ts': `const impl = async () => new Response('ok')
+export const GET = withCache(impl)`,
+      }),
+    )
+    const report = actions.find((a) => a.name === 'get_reports')!
+    expect(report).toMatchObject({ method: 'GET', effect: 'read', enabled: true })
+    expect(report.evidence).toContain('handler via wrapper withCache')
+  })
+
+  it('reads auth from an auth-shaped wrapper name', () => {
+    const { actions } = extractRoutes(
+      fakeLoaded({
+        '/app/api/admin/route.ts': `export const GET = withAuth(async () => new Response('ok'))`,
+      }),
+    )
+    expect(actions.find((a) => a.name === 'get_admin')!.auth).toBe('required')
+  })
+
+  it('skip-logs a wrapper whose handler cannot be resolved', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/app/api/opaque/route.ts': `export const GET = withMystery(someUnknownRef)`,
+      }),
+    )
+    expect(actions.find((a) => a.name === 'get_opaque')).toBeFalsy()
+    expect(skipped).toContainEqual({
+      file: 'app/api/opaque/route.ts',
+      reason: 'wrapped route handler not resolved: withMystery',
+    })
+  })
+})
+
+describe('extractRoutes hybrid-shop wrapped route integration', () => {
+  it('extracts get_surveys through the withV1Wrapper wrapper', () => {
+    const { actions } = extractRoutes(loadProject('tests/fixtures/hybrid-shop'))
+    const survey = actions.find((a) => a.name === 'get_surveys')!
+    expect(survey).toMatchObject({
+      kind: 'route',
+      method: 'GET',
+      effect: 'read',
+      enabled: true,
+      entitiesTouched: ['Document'],
+      auth: 'unknown',
+    })
+    expect(survey.evidence).toContain('handler via wrapper withV1Wrapper')
+  })
+})
+
 describe('extractRoutes path params', () => {
   it('adds path params as required path inputs', () => {
     const { actions } = extractRoutes(
