@@ -52,6 +52,22 @@ describe('compile', () => {
     })
   })
 
+  it('resolves workspace-root entities and records a coverage note', () => {
+    const ws = compile('tests/fixtures/workspace-shop/apps/web')
+    expect(ws.entities.map((e) => e.name)).toEqual(['Widget'])
+    expect(ws.coverage.skipped).toContainEqual({
+      file: 'packages/database/prisma/schema.prisma',
+      reason: 'entities resolved from workspace package',
+    })
+  })
+
+  it('adds no workspace note when a local schema resolves', () => {
+    const hybrid = compile('tests/fixtures/hybrid-shop')
+    expect(
+      hybrid.coverage.skipped.some((s) => s.reason === 'entities resolved from workspace package'),
+    ).toBe(false)
+  })
+
   it('types unknown inputs from touched prisma entities with evidence', () => {
     const actions: ActionIR[] = [
       {

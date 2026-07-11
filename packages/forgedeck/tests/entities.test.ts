@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractEntities } from '../src/extract/entities'
+import { extractEntities, extractEntitiesWithSource } from '../src/extract/entities'
 
 const FIXTURE = 'tests/fixtures/mini-shop'
 
@@ -23,5 +23,22 @@ describe('extractEntities', () => {
     const doc = entities.find((e) => e.name === 'Document')!
     expect(doc.relations).toContainEqual({ field: 'owner', target: 'User' })
     expect(doc.sourceFile).toBe('prisma/schema/document.prisma')
+  })
+  it('resolves a schema from the workspace root when the package has none', () => {
+    const entities = extractEntities('tests/fixtures/workspace-shop/apps/web')
+    expect(entities.map((e) => e.name)).toEqual(['Widget'])
+    const widget = entities[0]
+    expect(widget.fields.map((f) => f.name)).toEqual(['id', 'label'])
+    expect(widget.sourceFile).toBe('packages/database/prisma/schema.prisma')
+  })
+  it('surfaces a workspace note only when entities came from a workspace walk', () => {
+    const walked = extractEntitiesWithSource('tests/fixtures/workspace-shop/apps/web')
+    expect(walked.entities.map((e) => e.name)).toEqual(['Widget'])
+    expect(walked.workspaceNote).toEqual({
+      file: 'packages/database/prisma/schema.prisma',
+      reason: 'entities resolved from workspace package',
+    })
+    const local = extractEntitiesWithSource('tests/fixtures/hybrid-shop')
+    expect(local.workspaceNote).toBeUndefined()
   })
 })
