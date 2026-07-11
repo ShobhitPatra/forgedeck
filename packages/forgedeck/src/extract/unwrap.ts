@@ -1,6 +1,7 @@
 import {
   Node,
   type SourceFile,
+  type CallExpression,
   type FunctionDeclaration,
   type ArrowFunction,
   type FunctionExpression,
@@ -78,6 +79,38 @@ export function handlerFromWrapperArg(sf: SourceFile, arg: Node): FnLike | undef
   }
 
   if (Node.isIdentifier(arg)) return resolveFn(sf, arg.getText())
+  return undefined
+}
+
+// The terminal `.action(handler)` call of an action-client chain, recognized
+// STRUCTURALLY: walking down from the chain's outermost expression, the first
+// CallExpression whose callee is a property access named `action` — regardless
+// of chain shape, length, or any trailing links after it (`client.inputSchema(Z)
+// .action(fn)`, `a.b(1).c().action(fn)`, `client.action(fn).metadata(m)`). Returns
+// that call together with the chain ROOT identifier (server actions contract).
+export function terminalActionCall(node: Node): { call: CallExpression; root: string } | undefined {
+  let current: Node | undefined = node
+  while (current) {
+    if (Node.isCallExpression(current)) {
+      const callee = current.getExpression()
+      if (Node.isPropertyAccessExpression(callee) && callee.getName() === 'action') {
+        const target = callee.getExpression()
+        return { call: current, root: chainRoot(target) ?? target.getText() }
+      }
+      current = callee
+      continue
+    }
+    if (
+      Node.isPropertyAccessExpression(current) ||
+      Node.isElementAccessExpression(current) ||
+      Node.isNonNullExpression(current) ||
+      Node.isParenthesizedExpression(current)
+    ) {
+      current = current.getExpression()
+      continue
+    }
+    return undefined
+  }
   return undefined
 }
 
