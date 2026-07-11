@@ -11,6 +11,7 @@ import { extractEntities } from './extract/entities.js'
 import { extractRoutes } from './extract/routes.js'
 import { extractServerActions } from './extract/actions.js'
 import { extractPagesApi } from './extract/pagesApi.js'
+import { loadMiddlewareMatchers } from './extract/auth.js'
 
 function surfaceSuffix(kind: ActionIR['kind']): string {
   return kind === 'route' ? '_app' : kind === 'pages-api' ? '_pages' : '_action'
@@ -96,9 +97,10 @@ export function applyPrismaTypes(actions: ActionIR[], entities: EntityIR[]): voi
 export function compile(projectDir: string): SemanticIR {
   const loaded = loadProject(projectDir)
   const entities = extractEntities(loaded.rootDir)
-  const routes = extractRoutes(loaded)
+  const matchers = loadMiddlewareMatchers(loaded)
+  const routes = extractRoutes(loaded, matchers)
   const serverActions = extractServerActions(loaded)
-  const pagesApi = extractPagesApi(loaded)
+  const pagesApi = extractPagesApi(loaded, matchers)
   const actions = [...routes.actions, ...serverActions.actions, ...pagesApi.actions]
   const collisionSkips = resolveCollisions(actions)
   applyPrismaTypes(actions, entities)

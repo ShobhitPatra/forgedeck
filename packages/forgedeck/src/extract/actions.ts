@@ -4,6 +4,7 @@ import type { LoadedProject } from '../load/project.js'
 import { fnToName } from '../ir/names.js'
 import { classifyEffect } from './effects.js'
 import { extractInputs } from './inputs.js'
+import { detectHandlerAuth, resolveAuth } from './auth.js'
 
 export function extractServerActions(loaded: LoadedProject): {
   actions: ActionIR[]
@@ -47,6 +48,11 @@ export function extractServerActions(loaded: LoadedProject): {
 
     for (const { fnName, body } of candidates) {
       const { effect, entitiesTouched, evidence } = classifyEffect(body, { sf })
+      const { auth, evidence: authEvidence } = resolveAuth(
+        detectHandlerAuth(body, sf),
+        undefined,
+        [],
+      )
       actions.push({
         name: fnToName(fnName),
         kind: 'server-action',
@@ -58,8 +64,8 @@ export function extractServerActions(loaded: LoadedProject): {
         entitiesTouched,
         enabled: effect === 'read',
         confidence: 'static',
-        auth: 'unknown' as const,
-        evidence,
+        auth,
+        evidence: [...evidence, ...authEvidence],
       })
     }
     if (candidates.length === 0)
