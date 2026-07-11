@@ -52,3 +52,20 @@ describe('extractRoutes arrow handlers', () => {
     })
   })
 })
+
+describe('extractRoutes path params', () => {
+  it('adds path params as required path inputs', () => {
+    const { actions } = extractRoutes(
+      fakeLoaded({
+        '/app/api/reports/[reportId]/route.ts': `export async function GET() { return new Response('') }`,
+      }),
+    )
+    expect(actions[0].name).toBe('get_reports_by_report_id')
+    expect(actions[0].inputs).toContainEqual({
+      name: 'reportId',
+      type: 'string',
+      required: true,
+      location: 'path',
+    })
+  })
+})

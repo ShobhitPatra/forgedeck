@@ -1,7 +1,7 @@
 import { SyntaxKind, type SourceFile } from 'ts-morph'
-import type { ActionIR, CoverageItem } from '../ir/types.js'
+import type { ActionIR, CoverageItem, InputField } from '../ir/types.js'
 import type { LoadedProject } from '../load/project.js'
-import { routePathFromFile, routeToName } from '../ir/names.js'
+import { routePathFromFile, routeToName, paramsFromPath } from '../ir/names.js'
 import { classifyEffect } from './effects.js'
 import { extractInputs } from './inputs.js'
 
@@ -35,6 +35,12 @@ export function extractRoutes(loaded: LoadedProject): {
 
     const relFromApp = rel.replace(/^src\//, '')
     const path = routePathFromFile(relFromApp)
+    const pathInputs: InputField[] = paramsFromPath(path).map((p) => ({
+      name: p,
+      type: 'string',
+      required: true,
+      location: 'path' as const,
+    }))
     let found = 0
 
     for (const method of HTTP_METHODS) {
@@ -50,7 +56,7 @@ export function extractRoutes(loaded: LoadedProject): {
         sourceFile: rel,
         exportName: method,
         description: `${method} ${path}`,
-        inputs: extractInputs(sf, body),
+        inputs: [...pathInputs, ...extractInputs(sf, body)],
         effect,
         entitiesTouched,
         enabled: effect === 'read',
