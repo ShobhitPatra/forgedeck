@@ -1,25 +1,57 @@
 import { describe, it, expect } from 'vitest'
 import { loadProject } from '../src/load/project'
+import { fakeLoaded } from './helpers'
 import { extractPagesApi } from '../src/extract/pagesApi'
 
 describe('extractPagesApi', () => {
   const { actions, skipped } = extractPagesApi(loadProject('tests/fixtures/hybrid-shop'))
 
-  it('extracts one action per discriminated method across all export forms', () => {
+  it('extracts one action per discriminated method across all export forms and control flow', () => {
     const names = actions.map((a) => a.name).sort()
-    // temporary, restored in Task 3: the new control-flow fixture files (folders/views/settings)
-    // misbehave under current segmentation, so this asserts containment of the prior six names
-    // only; Task 3 restores the exact list including the correctly segmented new names.
-    expect(names).toEqual(
-      expect.arrayContaining([
-        'delete_documents_by_id',
-        'get_documents',
-        'get_documents_by_id',
-        'get_health',
-        'get_teams',
-        'post_documents',
-      ]),
+    expect(names).toEqual([
+      'delete_documents_by_id',
+      'get_documents',
+      'get_documents_by_id',
+      'get_folders',
+      'get_health',
+      'get_teams',
+      'post_documents',
+      'post_folders',
+      'post_views',
+      'put_settings',
+    ])
+  })
+  it('attributes early-return guard remainder to its method with evidence', () => {
+    const views = actions.find((a) => a.name === 'post_views')!
+    expect(views.effect).toBe('write')
+    expect(views.evidence).toContain('method POST via early return guard')
+    const settings = actions.find((a) => a.name === 'put_settings')!
+    expect(settings).toMatchObject({ effect: 'write', entitiesTouched: ['User'] })
+    expect(settings.evidence).toContain('method PUT via early return guard')
+  })
+  it('splits else-if dispatch chains into one action per arm', () => {
+    const get = actions.find((a) => a.name === 'get_folders')!
+    const post = actions.find((a) => a.name === 'post_folders')!
+    expect(get.effect).toBe('read')
+    expect(post.effect).toBe('write')
+    expect(post.entitiesTouched).toEqual(['Document'])
+  })
+  it('extracts handler map dispatch', () => {
+    const { actions: mapActions } = extractPagesApi(
+      fakeLoaded(
+        {
+          '/pages/api/tags.ts': `
+      async function list() { return db.product.findMany() }
+      async function create() { return db.product.create({ data: {} }) }
+      const handlers = { GET: list, POST: create }
+      export default function handler(req, res) { return handlers[req.method]?.(req, res) }
+    `,
+        },
+        { pagesApiDir: '/pages/api' },
+      ),
     )
+    expect(mapActions.map((a) => a.name).sort()).toEqual(['get_tags', 'post_tags'])
+    expect(mapActions.find((a) => a.name === 'post_tags')!.effect).toBe('write')
   })
   it('resolves identifier and wrapped default exports', () => {
     expect(actions.find((a) => a.name === 'get_health')).toBeTruthy()

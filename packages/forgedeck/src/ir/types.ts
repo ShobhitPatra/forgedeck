@@ -83,7 +83,15 @@ export const semanticIRSchema = z.object({
     framework: z.enum(['nextjs-app-router', 'nextjs-pages-router', 'nextjs-hybrid']),
   }),
   entities: z.array(entity),
-  actions: z.array(action),
+  actions: z.array(action).superRefine((arr, ctx) => {
+    const seen = new Set<string>()
+    for (const a of arr) {
+      if (seen.has(a.name)) {
+        ctx.addIssue({ code: 'custom', message: `duplicate action name: ${a.name}` })
+      }
+      seen.add(a.name)
+    }
+  }),
   coverage: z.object({
     extracted: z.number(),
     skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
