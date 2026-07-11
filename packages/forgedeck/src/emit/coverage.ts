@@ -1,9 +1,10 @@
 import type { SemanticIR } from '../ir/types.js'
 
 export function renderCoverage(ir: SemanticIR): string {
+  const byKind = (k: string) => ir.actions.filter((a) => a.kind === k).length
   const lines = [
     `forgedeck coverage for ${ir.app.name}`,
-    `${ir.coverage.extracted} actions extracted, ${ir.coverage.skipped.length} skipped`,
+    `${ir.coverage.extracted} actions extracted (${byKind('route')} app router, ${byKind('pages-api')} pages api, ${byKind('server-action')} server actions), ${ir.coverage.skipped.length} skipped`,
     `${ir.entities.length} entities from prisma schema`,
     '',
   ]

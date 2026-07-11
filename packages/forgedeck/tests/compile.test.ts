@@ -16,4 +16,13 @@ describe('compile', () => {
     expect(ir.coverage.extracted).toBe(4)
     expect(ir.coverage.skipped).toEqual([])
   })
+
+  it('compiles the hybrid fixture across both surfaces', () => {
+    const hybrid = compile('tests/fixtures/hybrid-shop')
+    expect(hybrid.app.framework).toBe('nextjs-hybrid')
+    const kinds = new Set(hybrid.actions.map((a) => a.kind))
+    expect(kinds.has('route')).toBe(true)
+    expect(kinds.has('pages-api')).toBe(true)
+    expect(hybrid.entities.map((e) => e.name).sort()).toEqual(['Document', 'Product', 'User'])
+  })
 })
