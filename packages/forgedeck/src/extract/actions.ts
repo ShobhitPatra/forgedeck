@@ -1,4 +1,4 @@
-import { Node, SyntaxKind } from 'ts-morph'
+import { Node, SyntaxKind, type JSDocableNode } from 'ts-morph'
 import type { ActionIR, AuthRequirement, CoverageItem } from '../ir/types.js'
 import type { LoadedProject } from '../load/project.js'
 import { fnToName } from '../ir/names.js'
@@ -6,6 +6,8 @@ import { classifyEffect } from './effects.js'
 import { extractInputs } from './inputs.js'
 import { detectHandlerAuth, resolveAuth } from './auth.js'
 import { asFnLike, resolveFn, terminalActionCall } from './unwrap.js'
+import { readAgentDoc } from './jsdoc.js'
+import { applyAgentDoc, type WorkflowBinding } from './annotate.js'
 
 // A client root whose name announces authentication (`authenticatedActionClient`,
 // `authorizedClient`, `protectedProcedure`, or anything containing `auth`) makes
@@ -19,9 +21,11 @@ function rootImpliesAuth(root: string): boolean {
 export function extractServerActions(loaded: LoadedProject): {
   actions: ActionIR[]
   skipped: CoverageItem[]
+  workflowBindings: WorkflowBinding[]
 } {
   const actions: ActionIR[] = []
   const skipped: CoverageItem[] = []
+  const workflowBindings: WorkflowBinding[] = []
 
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
@@ -48,6 +52,7 @@ export function extractServerActions(loaded: LoadedProject): {
       body: string
       wrapperEvidence: string[]
       authOverride?: AuthRequirement
+      docNode: JSDocableNode
     }
     const candidates: Candidate[] = []
     let wrappedSkip = false
@@ -57,11 +62,14 @@ export function extractServerActions(loaded: LoadedProject): {
           fnName: fn.getName() ?? 'anonymous',
           body: fn.getBodyText() ?? '',
           wrapperEvidence: [],
+          docNode: fn,
         })
       }
     }
     for (const vd of sf.getVariableDeclarations()) {
       if (!vd.isExported()) continue
+      // JSDoc on an exported const action sits on its VariableStatement.
+      const docNode: JSDocableNode = vd.getVariableStatementOrThrow()
       const init = vd.getInitializer()
       const arrow = init?.asKind(SyntaxKind.ArrowFunction)
       if (arrow?.isAsync()) {
@@ -69,6 +77,7 @@ export function extractServerActions(loaded: LoadedProject): {
           fnName: vd.getName(),
           body: arrow.getBodyText() ?? '',
           wrapperEvidence: [],
+          docNode,
         })
         continue
       }
@@ -95,11 +104,12 @@ export function extractServerActions(loaded: LoadedProject): {
           body: handler.getBodyText() ?? handler.getText(),
           wrapperEvidence: [`wrapped server action via ${root}`],
           authOverride: rootImpliesAuth(root) ? 'required' : undefined,
+          docNode,
         })
       }
     }
 
-    for (const { fnName, body, wrapperEvidence, authOverride } of candidates) {
+    for (const { fnName, body, wrapperEvidence, authOverride, docNode } of candidates) {
       const { effect, entitiesTouched, evidence } = classifyEffect(body, { sf })
       const idiomAuth = detectHandlerAuth(body, sf)
       const baseAuth =
@@ -107,7 +117,7 @@ export function extractServerActions(loaded: LoadedProject): {
           ? { auth: 'required' as const, evidence: ['auth required via server action client'] }
           : idiomAuth
       const { auth, evidence: authEvidence } = resolveAuth(baseAuth, undefined, [])
-      actions.push({
+      const action: ActionIR = {
         name: fnToName(fnName),
         kind: 'server-action',
         sourceFile: rel,
@@ -119,11 +129,23 @@ export function extractServerActions(loaded: LoadedProject): {
         enabled: effect === 'read',
         confidence: 'static',
         auth,
+        preconditions: [],
         evidence: [...wrapperEvidence, ...evidence, ...authEvidence],
-      })
+      }
+
+      // A server action is a single-action declaration: act-specific tags apply.
+      const doc = readAgentDoc(docNode)
+      if (doc.ignore) {
+        skipped.push({ file: rel, reason: 'excluded by @agent ignore' })
+        continue
+      }
+      const applied = applyAgentDoc(action, doc, { file: rel, actSpecific: true })
+      skipped.push(...applied.warnings)
+      workflowBindings.push(...applied.workflowBindings)
+      actions.push(action)
     }
     if (candidates.length === 0 && !wrappedSkip)
       skipped.push({ file: rel, reason: 'use server file with no exported async functions' })
   }
-  return { actions, skipped }
+  return { actions, skipped, workflowBindings }
 }

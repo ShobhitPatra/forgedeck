@@ -84,6 +84,7 @@ describe('compile', () => {
         enabled: false,
         confidence: 'static',
         auth: 'unknown',
+        preconditions: [],
         evidence: [],
       },
     ]

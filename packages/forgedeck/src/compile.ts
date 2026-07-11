@@ -12,6 +12,7 @@ import { extractRoutes } from './extract/routes.js'
 import { extractServerActions } from './extract/actions.js'
 import { extractPagesApi } from './extract/pagesApi.js'
 import { loadMiddlewareMatchers } from './extract/auth.js'
+import { assembleWorkflows } from './extract/annotate.js'
 
 function surfaceSuffix(kind: ActionIR['kind']): string {
   return kind === 'route' ? '_app' : kind === 'pages-api' ? '_pages' : '_action'
@@ -105,10 +106,19 @@ export function compile(projectDir: string): SemanticIR {
   const collisionSkips = resolveCollisions(actions)
   applyPrismaTypes(actions, entities)
 
+  // Workflows are assembled AFTER collision resolution so each step records the
+  // action's final (possibly renamed) tool name.
+  const { workflows, warnings: workflowWarnings } = assembleWorkflows([
+    ...routes.workflowBindings,
+    ...serverActions.workflowBindings,
+    ...pagesApi.workflowBindings,
+  ])
+
   return validateIR({
     app: { name: loaded.appName, framework: loaded.framework },
     entities,
     actions,
+    workflows,
     coverage: {
       extracted: actions.length,
       skipped: [
@@ -116,6 +126,7 @@ export function compile(projectDir: string): SemanticIR {
         ...serverActions.skipped,
         ...pagesApi.skipped,
         ...collisionSkips,
+        ...workflowWarnings,
         ...(workspaceNote ? [workspaceNote] : []),
       ],
     },

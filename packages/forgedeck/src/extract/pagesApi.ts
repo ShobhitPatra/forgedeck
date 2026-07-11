@@ -19,6 +19,8 @@ import {
   type AuthResult,
   type Matcher,
 } from './auth.js'
+import { readAgentDoc } from './jsdoc.js'
+import { applyAgentDoc, jsdocHostOf, type WorkflowBinding } from './annotate.js'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 type FnLike = FunctionDeclaration | ArrowFunction | FunctionExpression
@@ -274,10 +276,12 @@ export function extractPagesApi(
 ): {
   actions: ActionIR[]
   skipped: CoverageItem[]
+  workflowBindings: WorkflowBinding[]
 } {
   const actions: ActionIR[] = []
   const skipped: CoverageItem[] = []
-  if (!loaded.pagesApiDir) return { actions, skipped }
+  const workflowBindings: WorkflowBinding[] = []
+  if (!loaded.pagesApiDir) return { actions, skipped, workflowBindings }
 
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
@@ -294,6 +298,14 @@ export function extractPagesApi(
     }
     if (resolved.kind === 'wrapper') {
       skipped.push({ file: rel, reason: `wrapped default export not resolved: ${resolved.name}` })
+      continue
+    }
+
+    // One handler declaration carries one JSDoc block for all of its derived method
+    // actions. `@agent ignore` excludes the whole handler before anything is emitted.
+    const doc = readAgentDoc(jsdocHostOf(resolved.node))
+    if (doc.ignore) {
+      skipped.push({ file: rel, reason: 'excluded by @agent ignore' })
       continue
     }
 
@@ -318,9 +330,13 @@ export function extractPagesApi(
     const handlerAuth = idiomAuth.auth === 'required' ? idiomAuth : wrapperAuth
     const resolvedAuth = resolveAuth(handlerAuth, path, matchers)
 
+    // Emit into a per-handler bucket first so the annotation pass can see every
+    // derived action of this declaration together (the orchestrator ruling scopes
+    // act-specific tags across siblings).
+    const handlerActions: ActionIR[] = []
     const emit = (method: string, text: string, methodEvidence: string[]): void => {
       const { effect, entitiesTouched, evidence } = classifyEffect(text, { method, sf })
-      actions.push({
+      handlerActions.push({
         name: routeToName(method, path),
         kind: 'pages-api',
         method,
@@ -334,6 +350,7 @@ export function extractPagesApi(
         enabled: effect === 'read',
         confidence: 'static',
         auth: resolvedAuth.auth,
+        preconditions: [],
         evidence: [...methodEvidence, ...evidence, ...resolvedAuth.evidence],
       })
     }
@@ -341,21 +358,49 @@ export function extractPagesApi(
     if (found.length === 0) {
       emit('POST', wholeText, ['method POST via conservative default'])
       skipped.push({ file: rel, reason: 'no method discrimination found, treated as POST' })
-      continue
+    } else {
+      for (const branch of found) emit(branch.method, branch.text, branch.evidence)
+
+      // Trailing undiscriminated code (the [id].ts pattern) is attributed to the
+      // read-most method GET, classified from its own text, and logged for honesty.
+      if (/\b(prisma|db)\.|await\s/.test(tail)) {
+        emit('GET', tail, ['method GET via undiscriminated tail'])
+        skipped.push({
+          file: rel,
+          reason: 'undiscriminated code after method branches, attributed to GET',
+        })
+      }
     }
 
-    for (const branch of found) emit(branch.method, branch.text, branch.evidence)
-
-    // Trailing undiscriminated code (the [id].ts pattern) is attributed to the
-    // read-most method GET, classified from its own text, and logged for honesty.
-    if (/\b(prisma|db)\.|await\s/.test(tail)) {
-      emit('GET', tail, ['method GET via undiscriminated tail'])
+    // Orchestrator ruling: handler-level tags (description/auth/precondition) inherit
+    // to every derived action; act-specific tags (effect/workflow) attach ONLY to
+    // the non-read arms. A single act-specific tag over several non-read arms cannot
+    // pick one, so it is applied to each and flagged.
+    const nonRead = handlerActions.filter((a) => a.effect !== 'read')
+    const hasActSpecific = doc.effect !== undefined || doc.workflowSteps.length > 0
+    if (hasActSpecific && nonRead.length > 1) {
       skipped.push({
         file: rel,
-        reason: 'undiscriminated code after method branches, attributed to GET',
+        reason: `act specific @agent tag over ${nonRead.length} non read actions (${nonRead
+          .map((a) => a.method)
+          .join('/')}), applied to each`,
       })
     }
+    // Handler-level tags (auth/malformed) yield the same warning for every derived
+    // action; dedupe so one JSDoc issue is one coverage line, not one per method.
+    const seenWarn = new Set<string>()
+    for (const a of handlerActions) {
+      const applied = applyAgentDoc(a, doc, { file: rel, actSpecific: a.effect !== 'read' })
+      for (const w of applied.warnings) {
+        const key = `${w.file}|${w.reason}`
+        if (seenWarn.has(key)) continue
+        seenWarn.add(key)
+        skipped.push(w)
+      }
+      workflowBindings.push(...applied.workflowBindings)
+    }
+    actions.push(...handlerActions)
   }
 
-  return { actions, skipped }
+  return { actions, skipped, workflowBindings }
 }

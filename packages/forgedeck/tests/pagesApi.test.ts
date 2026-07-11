@@ -8,9 +8,9 @@ describe('extractPagesApi', () => {
 
   it('extracts one action per discriminated method across all export forms and control flow', () => {
     const names = actions.map((a) => a.name).sort()
+    // get_debug is gone: its handler carries `@agent ignore` (honored in Task 3).
     expect(names).toEqual([
       'delete_documents_by_id',
-      'get_debug',
       'get_documents',
       'get_documents_by_id',
       'get_folders',

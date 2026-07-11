@@ -163,8 +163,12 @@ describe('auth integration on fixtures', () => {
     const a = mini.actions.find((x) => x.name === 'get_products')!
     expect(a.auth).toBe('unknown')
   })
-  it('never derives none', () => {
-    for (const a of [...hybrid.actions, ...mini.actions]) expect(a.auth).not.toBe('none')
+  it('never derives none from code; only an @agent annotation can assert none', () => {
+    for (const a of [...hybrid.actions, ...mini.actions]) {
+      // Static derivation is conservative: it never concludes `none`. The single
+      // permitted `none` is human-asserted via annotation and carries its receipt.
+      if (a.auth === 'none') expect(a.evidence).toContain('auth none via @agent tag')
+    }
   })
   it('excludes the nextauth catch-all plumbing route', () => {
     expect(hybrid.actions.some((a) => a.sourceFile.includes('[...nextauth]'))).toBe(false)

@@ -130,14 +130,19 @@ describe('extractServerActions hybrid-shop wrapped action integration', () => {
   it('extracts delete_survey through the authenticatedActionClient', () => {
     const { actions } = extractServerActions(loadProject('tests/fixtures/hybrid-shop'))
     const del = actions.find((a) => a.name === 'delete_survey')!
+    // Derived write, escalated to irreversible by @agent effect (more restricted,
+    // allowed), plus the annotated business precondition — both carry receipts.
     expect(del).toMatchObject({
       kind: 'server-action',
-      effect: 'write',
+      effect: 'irreversible',
       enabled: false,
       entitiesTouched: ['Document'],
       auth: 'required',
+      preconditions: ['account must be in good standing'],
     })
     expect(del.evidence).toContain('wrapped server action via authenticatedActionClient')
+    expect(del.evidence).toContain('effect irreversible via @agent tag (escalation from write)')
+    expect(del.evidence).toContain('precondition via @agent tag: account must be in good standing')
   })
 })
 
