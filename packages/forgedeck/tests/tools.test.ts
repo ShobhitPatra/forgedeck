@@ -20,4 +20,10 @@ describe('toToolsManifest', () => {
     })
     expect(create.enabled).toBe(false)
   })
+
+  it('every tool carries an auth requirement', () => {
+    for (const t of manifest.tools) {
+      expect(['none', 'required', 'unknown']).toContain(t.auth)
+    }
+  })
 })
