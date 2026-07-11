@@ -9,7 +9,9 @@ export function buildToolHandlers(
   manifest: ToolsManifest,
   targetUrl: string,
   fetchImpl: typeof fetch = fetch,
+  opts: { headers?: Record<string, string> } = {},
 ): Map<string, { def: ToolDef; run(args: Record<string, unknown>): Promise<string> }> {
+  const injected = opts.headers ?? {}
   const handlers = new Map<
     string,
     { def: ToolDef; run(args: Record<string, unknown>): Promise<string> }
@@ -32,12 +34,15 @@ export function buildToolHandlers(
             ? '?' +
               new URLSearchParams(Object.entries(rest).map(([k, v]) => [k, String(v)])).toString()
             : ''
-          const res = await fetchImpl(`${base}${path}${qs}`, { method: 'GET' })
+          const init: RequestInit = { method: 'GET' }
+          if (Object.keys(injected).length) init.headers = { ...injected }
+          const res = await fetchImpl(`${base}${path}${qs}`, init)
           return await res.text()
         }
+        // Request-specific content-type wins over any injected content-type on conflict.
         const res = await fetchImpl(`${base}${path}`, {
           method: def.method,
-          headers: { 'content-type': 'application/json' },
+          headers: { ...injected, 'content-type': 'application/json' },
           body: JSON.stringify(rest),
         })
         return await res.text()
@@ -45,6 +50,35 @@ export function buildToolHandlers(
     })
   }
   return handlers
+}
+
+/**
+ * Parse the FORGEDECK_TARGET_HEADERS env var: a JSON object of header name → value.
+ * On any parse error or non-object shape, print a loud warning and return undefined
+ * so the server continues WITHOUT injected headers rather than crashing.
+ */
+export function parseTargetHeaders(raw: string | undefined): Record<string, string> | undefined {
+  if (raw === undefined) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (err) {
+    console.error(
+      `forgedeck: FORGEDECK_TARGET_HEADERS is not valid JSON, ignoring credential headers: ${
+        (err as Error).message
+      }`,
+    )
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    console.error(
+      'forgedeck: FORGEDECK_TARGET_HEADERS must be a JSON object of string headers, ignoring credential headers',
+    )
+    return undefined
+  }
+  const headers: Record<string, string> = {}
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) headers[k] = String(v)
+  return headers
 }
 
 const JSON_TO_ZOD: Record<string, z.ZodTypeAny> = {
@@ -56,8 +90,9 @@ const JSON_TO_ZOD: Record<string, z.ZodTypeAny> = {
 export async function startMcpServer(bundleDir: string, targetUrl: string): Promise<void> {
   const manifest: ToolsManifest = JSON.parse(readFileSync(join(bundleDir, 'tools.json'), 'utf8'))
   const server = new McpServer({ name: `forgedeck ${manifest.app}`, version: '0.0.1' })
+  const headers = parseTargetHeaders(process.env.FORGEDECK_TARGET_HEADERS)
 
-  for (const { def, run } of buildToolHandlers(manifest, targetUrl).values()) {
+  for (const { def, run } of buildToolHandlers(manifest, targetUrl, fetch, { headers }).values()) {
     const shape: Record<string, z.ZodTypeAny> = {}
     for (const [prop, spec] of Object.entries(def.inputSchema.properties)) {
       const base = JSON_TO_ZOD[spec.type] ?? z.string()

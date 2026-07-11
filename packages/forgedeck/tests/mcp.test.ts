@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildToolHandlers } from '../src/mcp/server'
+import { buildToolHandlers, parseTargetHeaders } from '../src/mcp/server'
 import type { ToolsManifest } from '../src/emit/tools'
 
 const manifest: ToolsManifest = {
@@ -54,5 +54,78 @@ describe('buildToolHandlers', () => {
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:3005/api/products/abc', {
       method: 'GET',
     })
+  })
+
+  it('injects opts.headers on GET proxied requests', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}'))
+    const handlers = buildToolHandlers(
+      manifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+      { headers: { authorization: 'Bearer secret' } },
+    )
+    await handlers.get('get_products')!.run({})
+    const [, init] = fetchMock.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({ authorization: 'Bearer secret' })
+  })
+
+  it('injects opts.headers on POST proxied requests', async () => {
+    const postManifest: ToolsManifest = {
+      app: 'mini-shop',
+      tools: [{ ...manifest.tools[2], enabled: true }],
+    }
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}'))
+    const handlers = buildToolHandlers(
+      postManifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+      { headers: { authorization: 'Bearer secret' } },
+    )
+    await handlers.get('post_orders')!.run({ item: 'x' })
+    const [, init] = fetchMock.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({ authorization: 'Bearer secret' })
+  })
+
+  it('request content-type wins over an injected content-type on POST', async () => {
+    const postManifest: ToolsManifest = {
+      app: 'mini-shop',
+      tools: [{ ...manifest.tools[2], enabled: true }],
+    }
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}'))
+    const handlers = buildToolHandlers(
+      postManifest,
+      'http://localhost:3005',
+      fetchMock as unknown as typeof fetch,
+      { headers: { 'content-type': 'text/plain', authorization: 'Bearer secret' } },
+    )
+    await handlers.get('post_orders')!.run({ item: 'x' })
+    const [, init] = fetchMock.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({
+      'content-type': 'application/json',
+      authorization: 'Bearer secret',
+    })
+  })
+})
+
+describe('parseTargetHeaders', () => {
+  it('returns undefined for undefined input', () => {
+    expect(parseTargetHeaders(undefined)).toBeUndefined()
+  })
+  it('parses a JSON object of headers', () => {
+    expect(parseTargetHeaders('{"authorization":"Bearer x"}')).toEqual({
+      authorization: 'Bearer x',
+    })
+  })
+  it('warns and ignores malformed JSON', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(parseTargetHeaders('{not json')).toBeUndefined()
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+  it('warns and ignores non-object JSON', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(parseTargetHeaders('"a string"')).toBeUndefined()
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
   })
 })

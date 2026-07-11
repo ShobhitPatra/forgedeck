@@ -27,6 +27,9 @@ program
 
 program
   .command('serve')
+  .description(
+    'Serve the compiled bundle as an MCP server. Set FORGEDECK_TARGET_HEADERS (a JSON object of header name to value, e.g. \'{"authorization":"Bearer ..."}\') to inject credentials into every proxied request. Secrets live in the environment only, never in config files.',
+  )
   .option('--bundle <dir>', 'bundle directory', '.agent')
   .option('--target <url>', 'running app base url', 'http://localhost:3000')
   .action(async (opts: { bundle: string; target: string }) => {
