@@ -21,7 +21,12 @@ export function toToolsManifest(ir: SemanticIR): ToolsManifest {
     app: ir.app.name,
     tools: ir.actions.map((a) => ({
       name: a.name,
-      description: a.description,
+      // The description is the final precedence value (tag > harvest > derived). When
+      // the action carries preconditions they are appended here, not hidden in a doc
+      // page: the moment an agent decides to call is the moment the constraint matters.
+      description: a.preconditions.length
+        ? `${a.description} Preconditions: ${a.preconditions.join('; ')}`
+        : a.description,
       inputSchema: {
         type: 'object',
         properties: Object.fromEntries(

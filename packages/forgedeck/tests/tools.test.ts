@@ -27,3 +27,17 @@ describe('toToolsManifest', () => {
     }
   })
 })
+
+describe('toToolsManifest preconditions (hybrid-shop)', () => {
+  const manifest = toToolsManifest(compile('tests/fixtures/hybrid-shop'))
+
+  it('appends preconditions to the tool description so the agent sees them at call time', () => {
+    const del = manifest.tools.find((t) => t.name === 'delete_survey')!
+    expect(del.description).toContain('Preconditions: account must be in good standing')
+  })
+
+  it('leaves descriptions untouched when an action has no preconditions', () => {
+    const health = manifest.tools.find((t) => t.name === 'get_health')!
+    expect(health.description).not.toContain('Preconditions:')
+  })
+})
