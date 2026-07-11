@@ -31,6 +31,18 @@ describe('extractPagesApi', () => {
       enabled: false,
       entitiesTouched: ['Document'],
     })
+    expect(post.inputs).toContainEqual({
+      name: 'title',
+      type: 'string',
+      required: true,
+      location: 'body',
+    })
+    expect(post.inputs).toContainEqual({
+      name: 'tags',
+      type: 'unknown',
+      required: true,
+      location: 'body',
+    })
     const del = actions.find((a) => a.name === 'delete_documents_by_id')!
     expect(del).toMatchObject({ effect: 'write', enabled: false })
     const get = actions.find((a) => a.name === 'get_documents')!
