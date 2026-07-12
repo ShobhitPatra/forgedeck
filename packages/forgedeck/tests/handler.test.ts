@@ -163,6 +163,89 @@ describe('createForgedeckHandler — serving an authorized request', () => {
   })
 })
 
+// The pruned public manifest a storefront build would emit: just the one public read.
+const publicManifest: ToolsManifest = {
+  app: 'mini-shop',
+  tools: [manifest.tools[0]], // get_products (read, auth none, enabled)
+}
+
+/** Like mockDeps, but captures which manifest each minted server was built over. */
+function matrixDeps() {
+  const seenManifests: ToolsManifest[] = []
+  const handleRequest = vi.fn(async () => new Response('{"ok":true}', { status: 200 }))
+  const connect = vi.fn(async () => {})
+  return {
+    seenManifests,
+    handleRequest,
+    connect,
+    opts: {
+      manifest,
+      publicManifest,
+      targetUrl: 'http://localhost:3000',
+      transportFactory: () => ({ handleRequest }),
+      serverFactory: (m: ToolsManifest) => {
+        seenManifests.push(m)
+        return { connect }
+      },
+    },
+  }
+}
+
+describe('createForgedeckHandler — storefront matrix', () => {
+  it('no token + public bundle present -> serves the PUBLIC manifest, unauthenticated', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    const { opts, seenManifests, handleRequest } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    const res = await POST(post()) // no Authorization header
+    expect(res.status).toBe(200)
+    expect(handleRequest).toHaveBeenCalledOnce()
+    expect(seenManifests).toHaveLength(1)
+    // the PUBLIC surface, not the internal one
+    expect(seenManifests[0]).toBe(publicManifest)
+  })
+
+  it('invalid token + public bundle present -> serves the PUBLIC manifest', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    const { opts, seenManifests } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    await POST(post({ authorization: 'Bearer wrong' }))
+    expect(seenManifests[0]).toBe(publicManifest)
+  })
+
+  it('valid token -> serves the FULL internal manifest even when a public bundle exists', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    const { opts, seenManifests } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    await POST(post({ authorization: 'Bearer sekret' }))
+    expect(seenManifests[0]).toBe(manifest)
+  })
+
+  it('no public bundle + no/invalid token -> 404 (current locked behavior, exactly)', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    // No public seam at all: findPublicBundleDir() probes the filesystem, finds no
+    // `.agent-public/`, and the route stays locked exactly as before the storefront.
+    const handleRequest = vi.fn(async () => new Response(null))
+    const { POST } = createForgedeckHandler({
+      manifest,
+      targetUrl: 'http://localhost:3000',
+      transportFactory: () => ({ handleRequest }),
+      serverFactory: () => ({ connect: vi.fn(async () => {}) }),
+    })
+    const res = await POST(post({ authorization: 'Bearer wrong' }))
+    expect(res.status).toBe(404)
+    expect(handleRequest).not.toHaveBeenCalled()
+  })
+
+  it('token UNSET + public bundle present -> still serves the public surface (invisible internal)', async () => {
+    delete process.env.FORGEDECK_MCP_TOKEN
+    const { opts, seenManifests } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    await POST(post({ authorization: 'Bearer anything' }))
+    // with no configured token there is no valid bearer, so the public surface is served
+    expect(seenManifests[0]).toBe(publicManifest)
+  })
+})
+
 describe('resolveTargetUrl', () => {
   it('defaults to localhost:3000 (self-target)', () => {
     delete process.env.FORGEDECK_TARGET_URL

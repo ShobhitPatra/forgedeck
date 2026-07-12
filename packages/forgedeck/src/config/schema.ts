@@ -5,6 +5,13 @@ import { z } from 'zod'
 // strict and loud — a silently-ignored typo in a safety allowlist is a safety bug,
 // so unknown keys are rejected (with did-you-mean) and config errors fail the build.
 
+/**
+ * The public storefront setting. `true` is the auto-curated storefront (only actions
+ * that are provably public reads). `{ actions }` adds explicitly named actions to that
+ * auto-curated set — each named non-read is a deliberate public mutation, logged loudly.
+ */
+export type PublicConfig = true | { actions: string[] }
+
 export interface ForgedeckConfig {
   /** Path globs never extracted; coverage logs 'excluded by config'. */
   exclude?: string[]
@@ -12,13 +19,18 @@ export interface ForgedeckConfig {
   out?: string
   /** Mutations enabled in ALL environments (base). Exact action names only. */
   enabledActions?: string[]
-  /** Per-environment overlay. An environment's `enabledActions` REPLACES the base list. */
-  environments?: Record<string, { enabledActions?: string[] }>
+  /** Per-environment overlay. An environment's `enabledActions` REPLACES the base list;
+   * an environment's `public` REPLACES the base `public` when present. */
+  environments?: Record<string, { enabledActions?: string[]; public?: PublicConfig }>
   /**
-   * Reserved for the v1 public storefront. The type exists now to prevent a future
-   * meaning-change of the key; any use fails the build until v1.
+   * The v1 public storefront. When set, `forgedeck build` ALSO emits a separate,
+   * pruned `.agent-public/` bundle (never the internal one): only provably-public
+   * READ actions (`auth: 'none'`, derived or annotated) survive by construction,
+   * plus any explicitly named in `actions` (a deliberate, loudly-logged commitment).
+   * `true` is the auto-curated storefront (public reads only). By construction the
+   * full internal map can never become public — accidental exposure is impossible.
    */
-  public?: never
+  public?: PublicConfig
   /** Gates bridge-shim generation. Default false. */
   bridges?: boolean
 }
@@ -46,12 +58,20 @@ export class ConfigError extends Error {
 
 // zod value schema. Unknown-key detection is handled manually (below) to attach
 // did-you-mean suggestions; the strict schema is defense-in-depth on value types.
-const environmentSchema = z.strictObject({ enabledActions: z.array(z.string()).optional() })
+// `public`: either the literal `true` (auto-curated storefront) or `{ actions: [...] }`.
+// Strict on the object shape so a typo like `{ action: [...] }` fails loudly rather
+// than silently naming zero actions — a safety allowlist must not be silently empty.
+const publicSchema = z.union([z.literal(true), z.strictObject({ actions: z.array(z.string()) })])
+const environmentSchema = z.strictObject({
+  enabledActions: z.array(z.string()).optional(),
+  public: publicSchema.optional(),
+})
 const valueSchema = z.strictObject({
   exclude: z.array(z.string()).optional(),
   out: z.string().optional(),
   enabledActions: z.array(z.string()).optional(),
   environments: z.record(z.string(), environmentSchema).optional(),
+  public: publicSchema.optional(),
   bridges: z.boolean().optional().default(false),
 })
 
@@ -113,13 +133,6 @@ export function parseConfig(raw: unknown): ParsedConfig {
   }
   const obj = raw as Record<string, unknown>
 
-  // Reserved key `public` — its own branch (a later plan replaces this rejection
-  // with the real public-storefront shape). The type is `never`, so any use is a
-  // deliberate build failure until v1.
-  if ('public' in obj && obj.public !== undefined) {
-    throw new ConfigError('public storefront ships in v1')
-  }
-
   // Unknown top-level keys are rejected loudly, with a did-you-mean over known keys.
   for (const key of Object.keys(obj)) {
     if (KNOWN_KEYS.includes(key)) continue
@@ -131,11 +144,7 @@ export function parseConfig(raw: unknown): ParsedConfig {
     )
   }
 
-  // `public` is validated above; strip it so the strict value schema doesn't see it.
-  const values = { ...obj }
-  delete values.public
-
-  const result = valueSchema.safeParse(values)
+  const result = valueSchema.safeParse(obj)
   if (!result.success) throw new ConfigError(formatZodError(result.error))
   return result.data
 }
@@ -144,6 +153,10 @@ export interface ResolvedEnvironment {
   name: string
   source: 'FORGEDECK_ENV' | 'NODE_ENV' | 'default'
   enabledActions: string[]
+  /** The resolved public-storefront setting: the base `public`, REPLACED wholesale
+   * by the selected environment's `public` when that block declares one. Undefined
+   * when neither the base nor the active overlay opts in. */
+  public?: PublicConfig
   line: string
 }
 
@@ -171,8 +184,18 @@ export function resolveEnvironment(
   }
 
   let enabledActions = config.enabledActions ?? []
+  let publicConfig = config.public
   const overlay = source === 'default' ? undefined : config.environments?.[name]
   if (overlay?.enabledActions !== undefined) enabledActions = overlay.enabledActions
+  // Replace semantics, identical to enabledActions: an environment block that names
+  // `public` is a complete, self-contained answer for that environment.
+  if (overlay?.public !== undefined) publicConfig = overlay.public
 
-  return { name, source, enabledActions, line: `environment: ${name} (via ${source})` }
+  return {
+    name,
+    source,
+    enabledActions,
+    public: publicConfig,
+    line: `environment: ${name} (via ${source})`,
+  }
 }

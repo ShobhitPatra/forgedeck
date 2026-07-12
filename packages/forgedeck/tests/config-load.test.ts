@@ -85,9 +85,28 @@ describe('loadConfig', () => {
     await expect(loadConfig(dir)).rejects.toBeInstanceOf(ConfigError)
   })
 
-  it('rejects the reserved `public` key with the v1 message', async () => {
+  it('loads a `public: true` storefront setting through to the resolved config', async () => {
+    const dir = project('forgedeck.config.ts', `export default { public: true }`)
+    const resolved = await loadConfig(dir)
+    expect(resolved!.public).toBe(true)
+  })
+
+  it('loads a named-actions storefront and honors an environment `public` override', async () => {
+    const dir = project(
+      'forgedeck.config.ts',
+      `export default {
+         public: { actions: ['get_health'] },
+         environments: { staging: { public: true } },
+       }`,
+    )
+    process.env.FORGEDECK_ENV = 'staging'
+    const resolved = await loadConfig(dir)
+    expect(resolved!.public).toBe(true)
+  })
+
+  it('rejects a malformed `public` value as a loud ConfigError', async () => {
     const dir = project('forgedeck.config.ts', `export default { public: false }`)
-    await expect(loadConfig(dir)).rejects.toThrow(/public storefront ships in v1/)
+    await expect(loadConfig(dir)).rejects.toBeInstanceOf(ConfigError)
   })
 
   it('turns malformed TS into a loud ConfigError build failure', async () => {

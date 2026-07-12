@@ -111,7 +111,7 @@ describe('mergeForgedeckTracing', () => {
   it('injects /api/mcp -> .agent glob into an empty config', () => {
     const merged = mergeForgedeckTracing({})
     expect(merged.outputFileTracingIncludes).toEqual({
-      '/api/mcp': ['./.agent/**/*'],
+      '/api/mcp': ['./.agent/**/*', './.agent-public/**/*'],
     })
   })
 
@@ -127,7 +127,7 @@ describe('mergeForgedeckTracing', () => {
     expect(merged.reactStrictMode).toBe(true)
     expect(merged.outputFileTracingIncludes).toEqual({
       '/api/other': ['./data/**/*'],
-      '/api/mcp': ['./custom/**/*', './.agent/**/*'],
+      '/api/mcp': ['./custom/**/*', './.agent/**/*', './.agent-public/**/*'],
     })
     // input is not mutated
     expect(input.outputFileTracingIncludes!['/api/mcp']).toEqual(['./custom/**/*'])
@@ -136,14 +136,19 @@ describe('mergeForgedeckTracing', () => {
   it('is idempotent — does not duplicate the glob if already present', () => {
     const once = mergeForgedeckTracing({})
     const twice = mergeForgedeckTracing(once)
-    expect(twice.outputFileTracingIncludes!['/api/mcp']).toEqual(['./.agent/**/*'])
+    expect(twice.outputFileTracingIncludes!['/api/mcp']).toEqual([
+      './.agent/**/*',
+      './.agent-public/**/*',
+    ])
   })
 
   it('withForgedeck returns a config carrying the tracing merge on any phase', async () => {
     const fn = withForgedeck({ reactStrictMode: true }, makeDeps())
     const cfg = await fn(PHASE_RUNTIME)
     expect(cfg.reactStrictMode).toBe(true)
-    expect(cfg.outputFileTracingIncludes).toEqual({ '/api/mcp': ['./.agent/**/*'] })
+    expect(cfg.outputFileTracingIncludes).toEqual({
+      '/api/mcp': ['./.agent/**/*', './.agent-public/**/*'],
+    })
   })
 })
 
@@ -187,7 +192,9 @@ describe('once-per-build guard', () => {
       const fn = withForgedeck({}, deps)
       const cfg = await fn(PHASE_BUILD)
       expect(deps.compileCalls).toBe(0)
-      expect(cfg.outputFileTracingIncludes).toEqual({ '/api/mcp': ['./.agent/**/*'] })
+      expect(cfg.outputFileTracingIncludes).toEqual({
+        '/api/mcp': ['./.agent/**/*', './.agent-public/**/*'],
+      })
     } finally {
       if (saved === undefined) delete process.env.IS_NEXT_WORKER
       else process.env.IS_NEXT_WORKER = saved
@@ -277,7 +284,9 @@ describe('never break the build', () => {
     const cfg = await fn(PHASE_BUILD)
     // did not throw; config returned with tracing merge intact
     expect(cfg.reactStrictMode).toBe(true)
-    expect(cfg.outputFileTracingIncludes).toEqual({ '/api/mcp': ['./.agent/**/*'] })
+    expect(cfg.outputFileTracingIncludes).toEqual({
+      '/api/mcp': ['./.agent/**/*', './.agent-public/**/*'],
+    })
     // loud warning printed, nothing emitted (last-good .agent/ untouched)
     expect(deps.warns.join('\n')).toContain('agent extraction FAILED')
     expect(deps.warns.join('\n')).toContain('ts-morph blew up')

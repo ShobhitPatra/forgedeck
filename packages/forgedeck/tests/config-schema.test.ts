@@ -49,13 +49,34 @@ describe('parseConfig', () => {
     expect(() => parseConfig({ zzzzzz: 1 })).not.toThrow(/did you mean/)
   })
 
-  it('rejects any non-undefined value for the reserved `public` key', () => {
-    expect(() => parseConfig({ public: false })).toThrow(/public storefront ships in v1/)
-    expect(() => parseConfig({ public: { actions: [] } })).toThrow(/public storefront ships in v1/)
+  it('accepts `public: true` (the auto-curated storefront)', () => {
+    expect(parseConfig({ public: true }).public).toBe(true)
   })
 
-  it('allows an explicitly-undefined `public` key (reserved but inert)', () => {
-    expect(() => parseConfig({ public: undefined })).not.toThrow()
+  it('accepts `public: { actions: [...] }` (explicitly named surface)', () => {
+    expect(parseConfig({ public: { actions: ['get_health', 'post_orders'] } }).public).toEqual({
+      actions: ['get_health', 'post_orders'],
+    })
+  })
+
+  it('accepts a `public` override inside an environment block', () => {
+    const parsed = parseConfig({
+      public: true,
+      environments: { staging: { public: { actions: ['get_health'] } } },
+    })
+    expect(parsed.environments!.staging.public).toEqual({ actions: ['get_health'] })
+  })
+
+  it('rejects a malformed `public` object shape (typo in `actions`)', () => {
+    // A silently-empty safety allowlist is a safety bug: the strict shape must fail loudly.
+    expect(() => parseConfig({ public: { action: ['get_health'] } })).toThrow(ConfigError)
+    expect(() => parseConfig({ public: false })).toThrow(ConfigError)
+    expect(() => parseConfig({ public: { actions: 'get_health' } })).toThrow(ConfigError)
+  })
+
+  it('allows an explicitly-undefined `public` key (storefront off)', () => {
+    const parsed = parseConfig({ public: undefined })
+    expect(parsed.public).toBeUndefined()
   })
 
   it('rejects wrong value types via the strict schema', () => {
@@ -97,5 +118,23 @@ describe('resolveEnvironment', () => {
     // no environments.production overlay -> base list retained
     expect(r.enabledActions).toEqual(['base_action'])
     expect(r.line).toBe('environment: production (via NODE_ENV)')
+  })
+
+  it('carries the base `public` when no overlay replaces it', () => {
+    const c: ForgedeckConfig = { public: true, environments: { staging: {} } }
+    expect(resolveEnvironment(c, {}).public).toBe(true)
+    expect(resolveEnvironment(c, { FORGEDECK_ENV: 'staging' }).public).toBe(true)
+  })
+
+  it('REPLACES base `public` from the active environment overlay', () => {
+    const c: ForgedeckConfig = {
+      public: true,
+      environments: { staging: { public: { actions: ['get_health'] } } },
+    }
+    expect(resolveEnvironment(c, { FORGEDECK_ENV: 'staging' }).public).toEqual({
+      actions: ['get_health'],
+    })
+    // base env keeps the base value
+    expect(resolveEnvironment(c, {}).public).toBe(true)
   })
 })

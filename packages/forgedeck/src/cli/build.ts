@@ -19,12 +19,17 @@ export function registerBuild(program: Command): void {
       const projectDir = resolve(dir)
       const outDir = resolve(opts.out ?? join(projectDir, '.agent'))
       try {
-        const { report, written, bridges } = await runBuild(projectDir, outDir)
+        const { report, written, bridges, public: pub } = await runBuild(projectDir, outDir)
         console.log(report)
         console.log(`\nwrote ${written.length} files to ${outDir}`)
         if (bridges.generated.length || bridges.removed.length) {
           console.log(
             `bridges: ${bridges.generated.length} generated, ${bridges.removed.length} removed`,
+          )
+        }
+        if (pub) {
+          console.log(
+            `public storefront: ${pub.count} actions, ${pub.written.length} files → ${pub.outDir}`,
           )
         }
       } catch (err) {
