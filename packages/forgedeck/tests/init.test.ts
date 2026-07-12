@@ -314,7 +314,7 @@ describe('forgedeck init (CLI, real build)', () => {
     // Start clean: remove any prebuilt .agent so this is a genuine first build.
     rmSync(join(dir, '.agent'), { recursive: true, force: true })
 
-    const stdout = execFileSync('pnpm', ['exec', 'tsx', 'src/cli.ts', 'init', dir], {
+    const stdout = execFileSync('pnpm', ['exec', 'tsx', 'src/cli/index.ts', 'init', dir], {
       encoding: 'utf8',
     })
 

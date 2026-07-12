@@ -20,13 +20,13 @@
     }
   },
   "bin": {
-    "forgedeck": "dist/cli.js"
+    "forgedeck": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "dev": "tsx src/cli.ts"
+    "dev": "tsx src/cli/index.ts"
   },
   "engines": {
     "node": ">=22"
