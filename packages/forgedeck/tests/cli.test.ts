@@ -11,7 +11,7 @@ describe('cli', () => {
   })
 
   it('prints version', () => {
-    const out = execFileSync('pnpm', ['exec', 'tsx', 'src/cli.ts', '--version'], {
+    const out = execFileSync('pnpm', ['exec', 'tsx', 'src/cli/index.ts', '--version'], {
       encoding: 'utf8',
     })
     expect(out.trim()).toBe('0.0.1')
@@ -30,7 +30,7 @@ describe('cli', () => {
     let status = 0
     let stderr = ''
     try {
-      execFileSync('pnpm', ['exec', 'tsx', 'src/cli.ts', 'build', dir], { encoding: 'utf8' })
+      execFileSync('pnpm', ['exec', 'tsx', 'src/cli/index.ts', 'build', dir], { encoding: 'utf8' })
     } catch (err) {
       const e = err as { status?: number; stderr?: string }
       status = e.status ?? 0

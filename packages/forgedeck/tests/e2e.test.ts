@@ -9,7 +9,7 @@ describe('forgedeck build e2e', () => {
     const out = mkdtempSync(join(tmpdir(), 'forgedeck-e2e-'))
     const stdout = execFileSync(
       'pnpm',
-      ['exec', 'tsx', 'src/cli.ts', 'build', 'tests/fixtures/mini-shop', '--out', out],
+      ['exec', 'tsx', 'src/cli/index.ts', 'build', 'tests/fixtures/mini-shop', '--out', out],
       { encoding: 'utf8' },
     )
     expect(stdout).toContain('4 actions extracted')
