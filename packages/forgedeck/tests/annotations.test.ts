@@ -41,7 +41,9 @@ describe('annotation semantics on hybrid-shop', () => {
   it('get_stats description is overridden by the @agent description tag', () => {
     const a = byName('get_stats')!
     // baseline: description "GET /api/stats"
-    expect(a.description).toBe('Returns aggregate document counts for the analytics dashboard.')
+    expect(a.description).toBe(
+      'Returns aggregate document counts for the analytics reporting dashboard.',
+    )
     expect(a.evidence).toContain('description via @agent tag')
   })
 
