@@ -63,9 +63,11 @@ import type { ActionIR, SemanticIR } from '../ir/types.js'
 const PHASE_PRODUCTION_BUILD = 'phase-production-build'
 const PHASE_DEVELOPMENT_SERVER = 'phase-development-server'
 
-/** The `/api/mcp` tracing key and the glob that wires the bundle into it. */
+/** The `/api/mcp` tracing key and the globs that wire the bundle(s) into it. The public
+ * bundle glob is ALWAYS included — it is safe when absent (an empty include) and is what
+ * lets a traced serverless deploy serve the token-free storefront. */
 const TRACING_ROUTE = '/api/mcp'
-const TRACING_GLOB = './.agent/**/*'
+const TRACING_GLOBS = ['./.agent/**/*', './.agent-public/**/*']
 
 /**
  * A minimal structural view of a Next.js config. We only touch
@@ -81,15 +83,16 @@ export type NextConfig = Record<string, unknown> & {
 export type ForgedeckConfigFn = (phase: string, context?: unknown) => Promise<NextConfig>
 
 /**
- * Merge the `/api/mcp` -> `./.agent/**\/*` tracing entry into a Next config
- * WITHOUT clobbering user values: other `outputFileTracingIncludes` keys are
- * kept, and any existing entries for `/api/mcp` are preserved (our glob is
- * appended only if absent). Returns a new object; the input is not mutated.
+ * Merge the `/api/mcp` -> `./.agent/**\/*` (+ `./.agent-public/**\/*`) tracing entries
+ * into a Next config WITHOUT clobbering user values: other `outputFileTracingIncludes`
+ * keys are kept, and any existing entries for `/api/mcp` are preserved (each of our
+ * globs is appended only if absent). Returns a new object; the input is not mutated.
  */
 export function mergeForgedeckTracing(config: NextConfig): NextConfig {
   const existing = config.outputFileTracingIncludes ?? {}
   const forRoute = existing[TRACING_ROUTE] ?? []
-  const merged = forRoute.includes(TRACING_GLOB) ? forRoute : [...forRoute, TRACING_GLOB]
+  const merged = [...forRoute]
+  for (const glob of TRACING_GLOBS) if (!merged.includes(glob)) merged.push(glob)
   return {
     ...config,
     outputFileTracingIncludes: { ...existing, [TRACING_ROUTE]: merged },

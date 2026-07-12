@@ -1,6 +1,20 @@
 import type { SemanticIR } from '../ir/types.js'
 
-export function renderCoverage(ir: SemanticIR): string {
+/**
+ * The public-storefront summary folded into the INTERNAL bundle's coverage report,
+ * so the one committed audit surface records exactly what left the building publicly.
+ * Omitted entirely when the storefront is off (config-less / `public` unset).
+ */
+export interface PublicCoverageInfo {
+  /** Actions surviving into `.agent-public/`. */
+  count: number
+  /** Explicitly-named actions that are NOT reads — each surfaced loudly. */
+  namedMutations: string[]
+  /** `public.actions` names matching no extracted action. */
+  unmatchedNamed: string[]
+}
+
+export function renderCoverage(ir: SemanticIR, publicInfo?: PublicCoverageInfo): string {
   const byKind = (k: string) => ir.actions.filter((a) => a.kind === k).length
   const lines = [
     `forgedeck coverage for ${ir.app.name}`,
@@ -28,5 +42,16 @@ export function renderCoverage(ir: SemanticIR): string {
     lines.push(`WARN ${a.name}: write action with no input contract detected`)
   const unknownAuthWrites = ir.actions.filter((a) => a.effect !== 'read' && a.auth === 'unknown')
   for (const a of unknownAuthWrites) lines.push(`WARN ${a.name}: auth unknown`)
+  // Public-storefront summary: the internal audit surface names the exact public
+  // surface. Every named mutation is LOUD (a deliberate exception to reads-only), and
+  // an enabled-but-empty storefront warns rather than silently shipping nothing.
+  if (publicInfo) {
+    lines.push(`PUBLIC: ${publicInfo.count} actions`)
+    for (const name of publicInfo.namedMutations)
+      lines.push(`PUBLIC MUTATION by explicit config: ${name}`)
+    for (const name of publicInfo.unmatchedNamed)
+      lines.push(`WARN public action '${name}' named in config matched no extracted action`)
+    if (publicInfo.count === 0) lines.push('WARN public storefront enabled but no actions qualify')
+  }
   return lines.join('\n')
 }

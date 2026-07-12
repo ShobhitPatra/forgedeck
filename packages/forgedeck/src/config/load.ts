@@ -8,6 +8,7 @@ import {
   parseConfig,
   resolveEnvironment,
   type ParsedConfig,
+  type PublicConfig,
   type ResolvedEnvironment,
 } from './schema.js'
 
@@ -20,6 +21,9 @@ export interface ResolvedConfig {
   exclude: string[]
   out?: string
   enabledActions: string[]
+  /** The resolved public-storefront setting (base, overlaid by the active environment).
+   * Undefined when the storefront is off — no `.agent-public/` is emitted. */
+  public?: PublicConfig
   bridges: boolean
   environment: string
   environmentSource: ResolvedEnvironment['source']
@@ -67,6 +71,7 @@ function resolve(parsed: ParsedConfig): ResolvedConfig {
     exclude: parsed.exclude ?? [],
     out: parsed.out,
     enabledActions: env.enabledActions,
+    public: env.public,
     bridges: parsed.bridges,
     environment: env.name,
     environmentSource: env.source,

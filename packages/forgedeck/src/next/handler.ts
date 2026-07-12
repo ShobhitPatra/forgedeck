@@ -17,6 +17,19 @@ import type { ToolsManifest } from '../emit/tools.js'
 //   - Exact bearer match          -> serve MCP.
 // A 404 (not 401/403) is deliberate: an unconfigured or wrongly-addressed route is
 // indistinguishable from a route that does not exist. There is nothing to probe.
+//
+// STOREFRONT MATRIX (v1 spec D2). When a build emitted a pruned `.agent-public/`
+// bundle next to `.agent/`, the SAME route serves two surfaces on one path:
+//
+//                          | valid bearer token        | no / invalid token
+//   ---------------------- | ------------------------- | ------------------------
+//   .agent-public present  | FULL internal bundle      | PUBLIC bundle (no token,
+//                          | (all enabled tools)       | read-only by construction)
+//   .agent-public absent   | FULL internal bundle      | empty 404 (locked, above)
+//
+// The public bundle is pruned at BUILD time (only provably-public reads + explicitly
+// named actions ever leave the building), so anonymous callers can never reach the
+// internal anatomy: the storefront is a different artifact, not a filtered view.
 
 const HANDLER_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -35,15 +48,18 @@ const HANDLER_DIR = dirname(fileURLToPath(import.meta.url))
  * When nothing is found we throw LOUDLY listing every path tried, so a missing bundle
  * is an obvious deploy-config error rather than a silent empty tool list.
  */
-export function resolveBundleDir(opts: { cwd?: string; moduleDir?: string } = {}): string {
+export function resolveBundleDir(
+  opts: { cwd?: string; moduleDir?: string; dirName?: string } = {},
+): string {
   const cwd = opts.cwd ?? process.cwd()
   const moduleDir = opts.moduleDir ?? HANDLER_DIR
+  const dirName = opts.dirName ?? '.agent'
 
-  const candidates: string[] = [join(cwd, '.agent')]
-  // Walk up to 8 parents of the handler module, checking for a sibling `.agent`.
+  const candidates: string[] = [join(cwd, dirName)]
+  // Walk up to 8 parents of the handler module, checking for a sibling bundle dir.
   let dir = moduleDir
   for (let i = 0; i < 8; i++) {
-    candidates.push(join(dir, '.agent'))
+    candidates.push(join(dir, dirName))
     const parent = dirname(dir)
     if (parent === dir) break
     dir = parent
@@ -56,11 +72,26 @@ export function resolveBundleDir(opts: { cwd?: string; moduleDir?: string } = {}
   }
 
   throw new Error(
-    `forgedeck: could not locate the .agent bundle (no tools.json found). Tried:\n` +
+    `forgedeck: could not locate the ${dirName} bundle (no tools.json found). Tried:\n` +
       tried.map((p) => `  - ${p}`).join('\n') +
       `\nRun \`forgedeck build\` (or \`withForgedeck()\` at build time) and ensure ` +
-      `.agent/ is traced into the deployment (outputFileTracingIncludes for /api/mcp).`,
+      `${dirName}/ is traced into the deployment (outputFileTracingIncludes for /api/mcp).`,
   )
+}
+
+/**
+ * Locate the pruned PUBLIC bundle (`.agent-public/`), if any. Unlike the internal
+ * bundle, its ABSENCE is normal (the storefront is opt-in), so this returns undefined
+ * rather than throwing — a missing public bundle simply means the route stays locked.
+ */
+export function findPublicBundleDir(
+  opts: { cwd?: string; moduleDir?: string } = {},
+): string | undefined {
+  try {
+    return resolveBundleDir({ ...opts, dirName: '.agent-public' })
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -103,10 +134,14 @@ interface ConnectableServer {
 export interface CreateForgedeckHandlerOptions {
   /** @internal test seam — bundle dir override (skips resolveBundleDir). */
   bundleDir?: string
+  /** @internal test seam — public bundle dir override (skips findPublicBundleDir). */
+  publicBundleDir?: string
   /** @internal test seam — target URL override (skips resolveTargetUrl). */
   targetUrl?: string
-  /** @internal test seam — manifest override (skips loadManifest). */
+  /** @internal test seam — internal manifest override (skips loadManifest). */
   manifest?: ToolsManifest
+  /** @internal test seam — public manifest override (skips loadManifest of the public dir). */
+  publicManifest?: ToolsManifest
   /** @internal test seam — build a fresh per-request transport. */
   transportFactory?: () => RequestTransport
   /** @internal test seam — build a fresh per-request server. */
@@ -150,17 +185,30 @@ export async function handleMcpRequest(
         headers: parseTargetHeaders(process.env.FORGEDECK_TARGET_HEADERS),
       }) as unknown as ConnectableServer)
 
-  // Gate FIRST, before touching the filesystem: an unauthorized caller learns
-  // nothing and triggers no bundle resolution.
+  // Resolve the surface for this caller (see the STOREFRONT MATRIX in the file header):
+  //   valid bearer token          -> the FULL internal bundle;
+  //   no / invalid token + public  -> the pruned PUBLIC bundle (unauthenticated);
+  //   no / invalid token, no public -> empty 404 (locked, learns nothing).
   const token = process.env.FORGEDECK_MCP_TOKEN
-  if (!token) return notFound()
-  if (!bearerMatches(request.headers.get('authorization'), token)) return notFound()
+  const authorized = !!token && bearerMatches(request.headers.get('authorization'), token)
 
-  // Authorized. Resolve the bundle + target and serve. A missing bundle throws
-  // loudly here (surfacing to the authorized caller), never to an anonymous one.
-  const manifest = opts.manifest ?? loadManifest(opts.bundleDir ?? resolveBundleDir())
+  let manifest: ToolsManifest
+  if (authorized) {
+    // A missing internal bundle throws loudly HERE, surfacing only to an authorized caller.
+    manifest = opts.manifest ?? loadManifest(opts.bundleDir ?? resolveBundleDir())
+  } else {
+    // Unauthorized: serve the public storefront if one was built, else stay locked.
+    // The token gate short-circuits before any internal bundle resolution.
+    if (opts.publicManifest) {
+      manifest = opts.publicManifest
+    } else {
+      const publicDir = opts.publicBundleDir ?? findPublicBundleDir()
+      if (!publicDir) return notFound()
+      manifest = loadManifest(publicDir)
+    }
+  }
+
   const targetUrl = opts.targetUrl ?? resolveTargetUrl()
-
   const server = makeServer(manifest, targetUrl)
   const transport = makeTransport()
   await server.connect(transport)
