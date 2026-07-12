@@ -8,6 +8,7 @@ import {
   type NextConfig,
 } from '../src/next/plugin'
 import { ConfigError } from '../src/config/schema'
+import type { BuildResult } from '../src/build'
 import type { ActionIR, EntityIR, SemanticIR } from '../src/ir/types'
 
 const PHASE_BUILD = 'phase-production-build'
@@ -68,27 +69,34 @@ function ir(over: Partial<SemanticIR> = {}): SemanticIR {
   }
 }
 
+// Wrap an IR into the BuildResult the shared orchestrator returns. The plugin only
+// reads `.ir` (for the voice); the rest is filled with empty-but-valid shapes.
+function result(irValue: SemanticIR): BuildResult {
+  return {
+    ir: irValue,
+    report: '',
+    written: [],
+    bridges: { coverage: [], generated: [], removed: [] },
+    public: undefined,
+  }
+}
+
 type RecordingDeps = ForgedeckPluginDeps & {
   logs: string[]
   warns: string[]
-  readonly compileCalls: number
-  readonly emitCalls: number
+  readonly buildCalls: number
 }
 
-// A deps double that records log/warn output and counts compile/emit calls.
-// Live getters (not a snapshot) keep the counts current as the closures run.
+// A deps double that records log/warn output and counts orchestrator (build) calls.
+// Live getters (not a snapshot) keep the count current as the closures run.
 function makeDeps(over: Partial<ForgedeckPluginDeps> = {}): RecordingDeps {
   const logs: string[] = []
   const warns: string[] = []
-  const counts = { compileCalls: 0, emitCalls: 0 }
+  const counts = { buildCalls: 0 }
   const base: ForgedeckPluginDeps = {
-    compile: async () => {
-      counts.compileCalls++
-      return ir()
-    },
-    emitBundle: () => {
-      counts.emitCalls++
-      return []
+    build: async () => {
+      counts.buildCalls++
+      return result(ir())
     },
     agentDirExists: () => true,
     log: (m) => logs.push(m),
@@ -98,8 +106,7 @@ function makeDeps(over: Partial<ForgedeckPluginDeps> = {}): RecordingDeps {
   return Object.defineProperties(base, {
     logs: { value: logs, enumerable: true },
     warns: { value: warns, enumerable: true },
-    compileCalls: { get: () => counts.compileCalls, enumerable: true },
-    emitCalls: { get: () => counts.emitCalls, enumerable: true },
+    buildCalls: { get: () => counts.buildCalls, enumerable: true },
   }) as RecordingDeps
 }
 
@@ -161,14 +168,14 @@ describe('once-per-build guard', () => {
     await fn(PHASE_BUILD)
     await fn(PHASE_BUILD)
     await fn(PHASE_BUILD)
-    expect(deps.compileCalls).toBe(1)
+    expect(deps.buildCalls).toBe(1)
   })
 
   it('does not compile outside a build phase', async () => {
     const deps = makeDeps()
     const fn = withForgedeck({}, deps)
     await fn(PHASE_RUNTIME)
-    expect(deps.compileCalls).toBe(0)
+    expect(deps.buildCalls).toBe(0)
   })
 
   it('compiles again after the guard is reset (a fresh build)', async () => {
@@ -177,7 +184,7 @@ describe('once-per-build guard', () => {
     await fn(PHASE_BUILD)
     __resetForgedeckGuard()
     await fn(PHASE_BUILD)
-    expect(deps.compileCalls).toBe(2)
+    expect(deps.buildCalls).toBe(2)
   })
 
   it('does not compile in a Next worker process (IS_NEXT_WORKER=true)', async () => {
@@ -191,7 +198,7 @@ describe('once-per-build guard', () => {
       const deps = makeDeps()
       const fn = withForgedeck({}, deps)
       const cfg = await fn(PHASE_BUILD)
-      expect(deps.compileCalls).toBe(0)
+      expect(deps.buildCalls).toBe(0)
       expect(cfg.outputFileTracingIncludes).toEqual({
         '/api/mcp': ['./.agent/**/*', './.agent-public/**/*'],
       })
@@ -230,7 +237,7 @@ describe('build voice', () => {
         })),
       },
     })
-    const deps = makeDeps({ agentDirExists: () => true, compile: async () => many })
+    const deps = makeDeps({ agentDirExists: () => true, build: async () => result(many) })
     await runForgedeckExtraction('/proj', deps)
     const out = deps.logs[0].split('\n')
     // one-line + 5 echoed warnings + 1 truncation pointer
@@ -261,7 +268,7 @@ describe('build voice', () => {
       actions: [action({ name: 'get_products', effect: 'read' })],
       coverage: { extracted: 1, skipped: [] },
     })
-    const deps = makeDeps({ agentDirExists: () => true, compile: async () => clean })
+    const deps = makeDeps({ agentDirExists: () => true, build: async () => result(clean) })
     await runForgedeckExtraction('/proj', deps)
     expect(deps.logs[0]).toBe(
       'forgedeck ✓ 1 actions (1 reads enabled, 0 mutations locked) · 2 entities · 0 warnings → .agent/',
@@ -276,7 +283,7 @@ describe('never break the build', () => {
   it('swallows an extraction failure: loud warn, no emit, config still returned', async () => {
     const deps = makeDeps({
       agentDirExists: () => true,
-      compile: async () => {
+      build: async () => {
         throw new Error('ts-morph blew up')
       },
     })
@@ -287,16 +294,16 @@ describe('never break the build', () => {
     expect(cfg.outputFileTracingIncludes).toEqual({
       '/api/mcp': ['./.agent/**/*', './.agent-public/**/*'],
     })
-    // loud warning printed, nothing emitted (last-good .agent/ untouched)
+    // loud warning printed, no voice (the failed build wrote nothing new — last-good
+    // .agent/ untouched)
     expect(deps.warns.join('\n')).toContain('agent extraction FAILED')
     expect(deps.warns.join('\n')).toContain('ts-morph blew up')
-    expect(deps.emitCalls).toBe(0)
     expect(deps.logs.length).toBe(0)
   })
 
   it('rethrows a ConfigError so the build fails, with the explanation attached', async () => {
     const deps = makeDeps({
-      compile: async () => {
+      build: async () => {
         throw new ConfigError("unknown config key 'brdiges'")
       },
     })
@@ -309,7 +316,7 @@ describe('never break the build', () => {
   it('does not double-append the explanation when it is already present', async () => {
     const msg = `boom\n${ConfigError.explanation}`
     const deps = makeDeps({
-      compile: async () => {
+      build: async () => {
         throw new ConfigError(msg)
       },
     })

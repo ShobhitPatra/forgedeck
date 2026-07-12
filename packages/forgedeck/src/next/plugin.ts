@@ -53,8 +53,7 @@
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { compile as realCompile } from '../compile.js'
-import { emitBundle as realEmitBundle } from '../emit/bundle.js'
+import { runBuild as realRunBuild, type BuildResult } from '../build.js'
 import { ConfigError } from '../config/schema.js'
 import type { ActionIR, SemanticIR } from '../ir/types.js'
 
@@ -124,16 +123,18 @@ export function __resetForgedeckGuard(): void {
 // --- injectable dependencies (real defaults; overridden in unit tests) ----
 
 export interface ForgedeckPluginDeps {
-  compile: (dir: string) => Promise<SemanticIR>
-  emitBundle: (ir: SemanticIR, outDir: string) => unknown
+  /** The SHARED build orchestrator — the same `runBuild` the `forgedeck build` CLI
+   * runs. Injecting the whole build (rather than compile/emit separately) is what
+   * makes the plugin a first-class build: config load, allowlist, bridges, and the
+   * public storefront are all applied identically however the build is triggered. */
+  build: (projectDir: string, outDir: string) => Promise<BuildResult>
   agentDirExists: (outDir: string) => boolean
   log: (msg: string) => void
   warn: (msg: string) => void
 }
 
 const defaultDeps: ForgedeckPluginDeps = {
-  compile: realCompile,
-  emitBundle: realEmitBundle,
+  build: realRunBuild,
   agentDirExists: (outDir) => existsSync(outDir),
   log: (msg) => console.log(msg),
   warn: (msg) => console.warn(msg),
@@ -244,14 +245,22 @@ function failureBanner(err: unknown): string {
 // --- the extraction core (called once per build) --------------------------
 
 /**
- * Compile the project, emit `.agent/`, and print the build voice. Isolated from
- * the guard/phase logic so unit tests can drive it directly with mocked deps.
+ * Run the SHARED build orchestrator (`runBuild`) against the project and print the
+ * build voice from the IR it produced. Isolated from the guard/phase logic so unit
+ * tests can drive it directly with a mocked `build`.
  *
- * - `ConfigError` from `compile()` is RETHROWN (with the explanation ensured in
- *   the message): a config parse error is the one deliberate build-breaker.
- * - Any other failure is swallowed: a loud warning is printed, no emit happens
- *   (so an existing last-good `.agent/` is left untouched), and control returns
- *   normally so the caller returns the config and the build proceeds.
+ * This is where plugin/CLI parity is enforced: the plugin does NOT run its own
+ * compile+emit. It calls the identical `runBuild` the CLI does — config load,
+ * allowlist, bridge generation/retirement (gated on `bridges: true`), and the pruned
+ * `.agent-public/` storefront (emitted/retired per the `public` config) all happen
+ * exactly as they do for `forgedeck build`. The plugin keeps only its own concerns:
+ * the once-per-build guard, the worker skip, the tracing merge, and this voice.
+ *
+ * - `ConfigError` from the build is RETHROWN (with the explanation ensured in the
+ *   message): a config parse error is the one deliberate build-breaker.
+ * - Any other failure is swallowed: a loud warning is printed, the build wrote
+ *   nothing new (so an existing last-good `.agent/` is left untouched), and control
+ *   returns normally so the caller returns the config and the build proceeds.
  */
 export async function runForgedeckExtraction(
   projectDir: string,
@@ -260,9 +269,9 @@ export async function runForgedeckExtraction(
   const outDir = join(projectDir, '.agent')
   const firstBuild = !deps.agentDirExists(outDir)
 
-  let ir: SemanticIR
+  let result: BuildResult
   try {
-    ir = await deps.compile(projectDir)
+    result = await deps.build(projectDir, outDir)
   } catch (err) {
     if (err instanceof ConfigError) {
       if (!err.message.includes(ConfigError.explanation)) {
@@ -274,8 +283,7 @@ export async function runForgedeckExtraction(
     return
   }
 
-  deps.emitBundle(ir, outDir)
-  deps.log(firstBuild ? teachingTable(ir) : steadyStateVoice(ir))
+  deps.log(firstBuild ? teachingTable(result.ir) : steadyStateVoice(result.ir))
 }
 
 /**

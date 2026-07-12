@@ -16,8 +16,13 @@ import { emitBundle } from './emit/bundle.js'
 import { renderCoverage, type PublicCoverageInfo } from './emit/coverage.js'
 import { generateBridges } from './emit/bridges.js'
 import { prunePublicIR } from './emit/public.js'
+import type { SemanticIR } from './ir/types.js'
 
 export interface BuildResult {
+  /** The compiled IR the whole build was derived from — bridge coverage folded in.
+   * The plugin renders its build voice from this so the plugin and CLI describe the
+   * SAME extraction. */
+  ir: SemanticIR
   /** The rendered coverage report — printed by the CLI and written to disk. */
   report: string
   /** Absolute paths of every bundle file written. */
@@ -87,5 +92,5 @@ export async function runBuild(projectDir: string, outDir: string): Promise<Buil
 
   const report = renderCoverage(ir, publicInfo)
   writeFileSync(join(outDir, 'coverage.txt'), report)
-  return { report, written, bridges, public: publicResult }
+  return { ir, report, written, bridges, public: publicResult }
 }

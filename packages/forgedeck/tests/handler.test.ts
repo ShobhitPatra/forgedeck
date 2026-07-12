@@ -37,6 +37,7 @@ const manifest: ToolsManifest = {
 const savedToken = process.env.FORGEDECK_MCP_TOKEN
 const savedTarget = process.env.FORGEDECK_TARGET_URL
 const savedPort = process.env.PORT
+const savedPublic = process.env.FORGEDECK_PUBLIC
 
 afterEach(() => {
   const restore = (k: string, v: string | undefined) =>
@@ -44,6 +45,7 @@ afterEach(() => {
   restore('FORGEDECK_MCP_TOKEN', savedToken)
   restore('FORGEDECK_TARGET_URL', savedTarget)
   restore('PORT', savedPort)
+  restore('FORGEDECK_PUBLIC', savedPublic)
 })
 
 /** A transport spy that records the Request it was handed and returns a sentinel. */
@@ -242,6 +244,37 @@ describe('createForgedeckHandler — storefront matrix', () => {
     const { POST } = createForgedeckHandler(opts)
     await POST(post({ authorization: 'Bearer anything' }))
     // with no configured token there is no valid bearer, so the public surface is served
+    expect(seenManifests[0]).toBe(publicManifest)
+  })
+
+  it('FORGEDECK_PUBLIC=0 + public bundle present -> 404 (opt-out ignores the storefront)', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    process.env.FORGEDECK_PUBLIC = '0'
+    const { opts, seenManifests, handleRequest } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    const res = await POST(post()) // no Authorization header, storefront present
+    // the opt-out closes the anonymous door: locked 404, no manifest served
+    expect(res.status).toBe(404)
+    expect(seenManifests).toHaveLength(0)
+    expect(handleRequest).not.toHaveBeenCalled()
+  })
+
+  it('FORGEDECK_PUBLIC=0 does NOT affect the authorized internal surface', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    process.env.FORGEDECK_PUBLIC = '0'
+    const { opts, seenManifests } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    await POST(post({ authorization: 'Bearer sekret' }))
+    // a valid bearer still gets the FULL internal bundle; the opt-out only gates public
+    expect(seenManifests[0]).toBe(manifest)
+  })
+
+  it('FORGEDECK_PUBLIC unset (default) serves the storefront exactly as before', async () => {
+    process.env.FORGEDECK_MCP_TOKEN = 'sekret'
+    delete process.env.FORGEDECK_PUBLIC
+    const { opts, seenManifests } = matrixDeps()
+    const { POST } = createForgedeckHandler(opts)
+    await POST(post())
     expect(seenManifests[0]).toBe(publicManifest)
   })
 })
