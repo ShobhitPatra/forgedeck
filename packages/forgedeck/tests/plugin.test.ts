@@ -174,6 +174,25 @@ describe('once-per-build guard', () => {
     await fn(PHASE_BUILD)
     expect(deps.compileCalls).toBe(2)
   })
+
+  it('does not compile in a Next worker process (IS_NEXT_WORKER=true)', async () => {
+    // Next's build workers re-evaluate next.config.js with the build phase in
+    // FRESH processes, where the per-process guard cannot help. The worker marker
+    // env (set by next/dist/lib/worker.js) is the skip signal — but the tracing
+    // merge must still be applied so workers see the same config.
+    const saved = process.env.IS_NEXT_WORKER
+    process.env.IS_NEXT_WORKER = 'true'
+    try {
+      const deps = makeDeps()
+      const fn = withForgedeck({}, deps)
+      const cfg = await fn(PHASE_BUILD)
+      expect(deps.compileCalls).toBe(0)
+      expect(cfg.outputFileTracingIncludes).toEqual({ '/api/mcp': ['./.agent/**/*'] })
+    } finally {
+      if (saved === undefined) delete process.env.IS_NEXT_WORKER
+      else process.env.IS_NEXT_WORKER = saved
+    }
+  })
 })
 
 // --- voice: format, first-build vs steady-state ---------------------------

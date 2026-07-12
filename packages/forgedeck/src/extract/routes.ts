@@ -118,6 +118,22 @@ function collectReExports(
   return { map, skipped }
 }
 
+// forgedeck's own MCP shim (`export const { GET, POST } = createForgedeckHandler()`
+// with the import from 'forgedeck/next') is infrastructure, not an app action: it
+// SERVES the agent surface rather than belonging on it. Without this check the
+// extractor warns 'wrapped route handler not resolved: createForgedeckHandler' for
+// every method on every build — noise about our own plumbing. Recognized by the
+// import (specifier + name), not the file path, so the shim can live at any route.
+function isForgedeckMcpRoute(sf: SourceFile): boolean {
+  return sf
+    .getImportDeclarations()
+    .some(
+      (imp) =>
+        imp.getModuleSpecifierValue() === 'forgedeck/next' &&
+        imp.getNamedImports().some((s) => s.getName() === 'createForgedeckHandler'),
+    )
+}
+
 // A plumbing route (`app/api/auth/[...nextauth]/route.ts`) is auto-excluded UNLESS a
 // human annotated it: scan every resolvable method declaration (local or re-exported)
 // for any @agent tag or JSDoc summary. One annotated method surfaces the route.
@@ -146,6 +162,11 @@ export function extractRoutes(
   for (const sf of loaded.project.getSourceFiles()) {
     const rel = loaded.relPath(sf.getFilePath())
     if (!/(^|\/)route\.tsx?$/.test(rel)) continue
+    // Our own MCP shim route serves the agent surface — never extracted onto it.
+    if (isForgedeckMcpRoute(sf)) {
+      skipped.push({ file: rel, reason: 'forgedeck mcp route' })
+      continue
+    }
     // Auth plumbing is excluded only while un-annotated; an @agent tag or JSDoc
     // summary on any method is a human decision to surface it (human facts win).
     const plumbing = isAuthPlumbingRoute(rel)
