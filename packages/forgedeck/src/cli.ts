@@ -7,6 +7,7 @@ import { emitBundle } from './emit/bundle.js'
 import { renderCoverage } from './emit/coverage.js'
 import { generateBridges } from './emit/bridges.js'
 import { startMcpServer } from './mcp/server.js'
+import { runInit } from './init.js'
 import { loadConfig } from './config/load.js'
 import { ConfigError } from './config/schema.js'
 
@@ -51,6 +52,17 @@ program
       }
       throw err
     }
+  })
+
+program
+  .command('init')
+  .description(
+    'Set up forgedeck in a Next.js App Router project: writes the /api/mcp shim, wraps next.config, scaffolds forgedeck.config.ts, gitignores .agent/, then runs the first build. Idempotent and never touches git.',
+  )
+  .argument('[dir]', 'project directory', '.')
+  .option('--with-workflow', 'also write .github/workflows/forgedeck.yml (the PR diff Action)')
+  .action(async (dir: string, opts: { withWorkflow?: boolean }) => {
+    await runInit(resolve(dir), { withWorkflow: opts.withWorkflow })
   })
 
 program
