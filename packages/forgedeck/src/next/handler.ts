@@ -116,7 +116,10 @@ export interface CreateForgedeckHandlerOptions {
 export type ForgedeckRouteHandler = (request: Request) => Promise<Response>
 
 /**
- * Build the `{ GET, POST }` App Router route handlers for the app's MCP surface.
+ * The single transport-agnostic MCP request pipeline. Given a web-standard Fetch
+ * `Request`, apply the locked-by-default token gate, then — only for an authorized
+ * caller — resolve the bundle, build the server, and hand the raw Request to a fresh
+ * stateless streamable-HTTP transport, returning its `Response`.
  *
  * Transport: the SDK 1.29 `WebStandardStreamableHTTPServerTransport` — a Fetch-native
  * (Request => Response) implementation of MCP streamable HTTP. We run it STATELESS
@@ -125,14 +128,14 @@ export type ForgedeckRouteHandler = (request: Request) => Promise<Response>
  * reusing a stateless transport across requests, which is exactly the per-request
  * isolation a serverless route wants.
  *
- * Both verbs share one gated pipeline: token check first (see the file header for the
- * locked-by-default matrix), then — only for an authorized request — resolve the
- * bundle, build the server, and hand the raw Request to the transport.
+ * BOTH the Next App Router handler (`createForgedeckHandler`) and the standalone HTTP
+ * sidecar (`src/serve-http.ts`) call THIS function, so the two deployments share one
+ * gate, one transport, and one tool posture byte-for-byte.
  */
-export function createForgedeckHandler(opts: CreateForgedeckHandlerOptions = {}): {
-  GET: ForgedeckRouteHandler
-  POST: ForgedeckRouteHandler
-} {
+export async function handleMcpRequest(
+  request: Request,
+  opts: CreateForgedeckHandlerOptions = {},
+): Promise<Response> {
   const makeTransport =
     opts.transportFactory ??
     (() =>
@@ -147,23 +150,32 @@ export function createForgedeckHandler(opts: CreateForgedeckHandlerOptions = {})
         headers: parseTargetHeaders(process.env.FORGEDECK_TARGET_HEADERS),
       }) as unknown as ConnectableServer)
 
-  async function handle(request: Request): Promise<Response> {
-    // Gate FIRST, before touching the filesystem: an unauthorized caller learns
-    // nothing and triggers no bundle resolution.
-    const token = process.env.FORGEDECK_MCP_TOKEN
-    if (!token) return notFound()
-    if (!bearerMatches(request.headers.get('authorization'), token)) return notFound()
+  // Gate FIRST, before touching the filesystem: an unauthorized caller learns
+  // nothing and triggers no bundle resolution.
+  const token = process.env.FORGEDECK_MCP_TOKEN
+  if (!token) return notFound()
+  if (!bearerMatches(request.headers.get('authorization'), token)) return notFound()
 
-    // Authorized. Resolve the bundle + target and serve. A missing bundle throws
-    // loudly here (surfacing to the authorized caller), never to an anonymous one.
-    const manifest = opts.manifest ?? loadManifest(opts.bundleDir ?? resolveBundleDir())
-    const targetUrl = opts.targetUrl ?? resolveTargetUrl()
+  // Authorized. Resolve the bundle + target and serve. A missing bundle throws
+  // loudly here (surfacing to the authorized caller), never to an anonymous one.
+  const manifest = opts.manifest ?? loadManifest(opts.bundleDir ?? resolveBundleDir())
+  const targetUrl = opts.targetUrl ?? resolveTargetUrl()
 
-    const server = makeServer(manifest, targetUrl)
-    const transport = makeTransport()
-    await server.connect(transport)
-    return await transport.handleRequest(request)
-  }
+  const server = makeServer(manifest, targetUrl)
+  const transport = makeTransport()
+  await server.connect(transport)
+  return await transport.handleRequest(request)
+}
 
+/**
+ * Build the `{ GET, POST }` App Router route handlers for the app's MCP surface.
+ * Both verbs share the one gated pipeline in `handleMcpRequest` (see the file header
+ * for the locked-by-default matrix).
+ */
+export function createForgedeckHandler(opts: CreateForgedeckHandlerOptions = {}): {
+  GET: ForgedeckRouteHandler
+  POST: ForgedeckRouteHandler
+} {
+  const handle = (request: Request): Promise<Response> => handleMcpRequest(request, opts)
   return { GET: handle, POST: handle }
 }
