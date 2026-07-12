@@ -9,6 +9,7 @@
 
 import { Command } from 'commander'
 import { registerBuild } from './build.js'
+import { registerDiff } from './diff.js'
 import { registerInit } from './init.js'
 import { registerServe } from './serve.js'
 
@@ -16,6 +17,7 @@ const program = new Command()
 program.name('forgedeck').description('Compile your app into an MCP server').version('0.0.1')
 
 registerBuild(program)
+registerDiff(program)
 registerInit(program)
 registerServe(program)
 
