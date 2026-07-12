@@ -16,6 +16,16 @@ not a hand-rolled Dockerfile drifting in your repo.
 - Wrong / missing `Authorization: Bearer <token>` → `404`.
 - Exact bearer match → the MCP surface is served.
 
+## Public storefront opt-out
+
+If the mounted bundle ships a pruned `.agent-public/` storefront (built from a
+`public:` config), the sidecar serves it to **unauthenticated** callers by default —
+the token still gates the full internal surface. To turn that anonymous surface off for
+a given deployment without rebuilding, set `FORGEDECK_PUBLIC=0`: the sidecar then
+ignores any discovered `.agent-public/` and unauthenticated callers get the empty `404`
+again. Any other value (or leaving it unset) keeps the default — a built storefront is
+served. This lets one image decide per environment whether the storefront is live.
+
 ## Compose example
 
 ```yaml

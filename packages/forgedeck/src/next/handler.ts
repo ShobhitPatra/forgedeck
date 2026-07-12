@@ -30,6 +30,13 @@ import type { ToolsManifest } from '../emit/tools.js'
 // The public bundle is pruned at BUILD time (only provably-public reads + explicitly
 // named actions ever leave the building), so anonymous callers can never reach the
 // internal anatomy: the storefront is a different artifact, not a filtered view.
+//
+// PUBLIC OPT-OUT. Setting `FORGEDECK_PUBLIC=0` makes this handler IGNORE any discovered
+// `.agent-public/` bundle: unauthenticated callers get the empty 404 even when a
+// storefront was built. It is the deploy-time kill switch for the anonymous surface
+// (serve one build, decide per-environment whether the storefront is live). Any other
+// value — including unset — is the default: a built storefront is served to anonymous
+// callers. The token gate for the FULL internal bundle is unaffected either way.
 
 const HANDLER_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -199,6 +206,9 @@ export async function handleMcpRequest(
   } else {
     // Unauthorized: serve the public storefront if one was built, else stay locked.
     // The token gate short-circuits before any internal bundle resolution.
+    // FORGEDECK_PUBLIC=0 is the deploy-time opt-out: ignore any discovered
+    // `.agent-public/` and keep the route locked (empty 404) for anonymous callers.
+    if (process.env.FORGEDECK_PUBLIC === '0') return notFound()
     if (opts.publicManifest) {
       manifest = opts.publicManifest
     } else {
