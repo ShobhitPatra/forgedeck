@@ -294,3 +294,52 @@ describe('extractRoutes — auth-plumbing exclusion is annotation-aware', () => 
     })
   })
 })
+
+describe('extractRoutes — the forgedeck mcp shim is infrastructure, not an action', () => {
+  it('skips the shim quietly (coverage note, no unresolved-wrapper warning)', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/app/api/mcp/route.ts': [
+          `import { createForgedeckHandler } from 'forgedeck/next'`,
+          `export const { GET, POST } = createForgedeckHandler()`,
+        ].join('\n'),
+      }),
+    )
+    expect(actions).toEqual([])
+    expect(skipped).toEqual([{ file: 'app/api/mcp/route.ts', reason: 'forgedeck mcp route' }])
+  })
+
+  it('recognizes the shim by its import, not its path', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/app/api/agent-door/route.ts': [
+          `import { createForgedeckHandler } from 'forgedeck/next'`,
+          `export const { GET, POST } = createForgedeckHandler()`,
+        ].join('\n'),
+      }),
+    )
+    expect(actions).toEqual([])
+    expect(skipped).toEqual([
+      { file: 'app/api/agent-door/route.ts', reason: 'forgedeck mcp route' },
+    ])
+  })
+
+  it('does NOT skip a user route whose wrapper merely shares the name', () => {
+    const { actions, skipped } = extractRoutes(
+      fakeLoaded({
+        '/app/api/things/route.ts': [
+          `import { createForgedeckHandler } from './local-helpers'`,
+          `export const GET = createForgedeckHandler()`,
+        ].join('\n'),
+      }),
+    )
+    // Not our shim — the ordinary unresolved-wrapper coverage path still applies.
+    expect(actions).toEqual([])
+    expect(skipped).toEqual([
+      {
+        file: 'app/api/things/route.ts',
+        reason: 'wrapped route handler not resolved: createForgedeckHandler',
+      },
+    ])
+  })
+})

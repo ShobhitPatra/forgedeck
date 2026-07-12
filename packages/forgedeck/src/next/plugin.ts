@@ -295,7 +295,14 @@ export function withForgedeck(
   return async (phase: string): Promise<NextConfig> => {
     const merged = mergeForgedeckTracing(nextConfig)
     const isBuildPhase = phase === PHASE_PRODUCTION_BUILD || phase === PHASE_DEVELOPMENT_SERVER
-    if (isBuildPhase) {
+    // Next spawns WORKER processes (page-data collection, static generation) that
+    // each re-evaluate next.config.js with the build phase — so the per-process
+    // guard alone still compiles once per worker (~4x per build, observed in the
+    // skeleton e2e). Workers mark themselves with IS_NEXT_WORKER=true (set in
+    // next/dist/lib/worker.js); the main build process compiles BEFORE any worker
+    // spawns, so workers only ever need the config, never the compile.
+    const isWorker = process.env.IS_NEXT_WORKER === 'true'
+    if (isBuildPhase && !isWorker) {
       const projectDir = process.cwd()
       if (!alreadyCompiled(projectDir)) {
         await runForgedeckExtraction(projectDir, deps)
