@@ -8,7 +8,7 @@ export function CopyCommand({ command }: { command: string }) {
   return (
     <button
       type="button"
-      aria-label={copy.hero.copyLabel}
+      aria-label={`${copy.hero.copyLabel}: ${command}`}
       onClick={async () => {
         await navigator.clipboard.writeText(command)
         setCopied(true)
