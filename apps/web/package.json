@@ -7,9 +7,13 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postinstall": "fumadocs-mdx"
   },
   "dependencies": {
+    "fumadocs-core": "16.11.4",
+    "fumadocs-mdx": "15.1.1",
+    "fumadocs-ui": "16.11.4",
     "next": "16.2.10",
     "react": "19.2.7",
     "react-dom": "19.2.7"

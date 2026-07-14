@@ -1,5 +1,5 @@
 # Local planning artifacts — never committed (see CLAUDE.md)
-docs/
+/docs/
 
 # Dependencies & build output
 node_modules/
