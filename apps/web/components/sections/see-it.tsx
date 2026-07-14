@@ -1,3 +1,4 @@
+import { CompileStrip } from '@/components/compile-strip'
 import { Layer } from '@/components/layer'
 import { copy } from '@/content/copy'
 
@@ -6,7 +7,9 @@ export function SeeIt() {
     <Layer>
       <p className="font-mono text-sm font-bold">{copy.seeIt.lead}</p>
       <p className="mt-3 max-w-2xl text-graphite">{copy.seeIt.body}</p>
-      <div data-slot="compile-strip" className="mt-10" />
+      <div className="mt-10">
+        <CompileStrip />
+      </div>
     </Layer>
   )
 }
