@@ -1,6 +1,8 @@
 pnpm-lock.yaml
 dist
+.next
 node_modules
 docs
 .claude
 tests/fixtures/mini-shop/package-lock.json
+apps/web/DESIGN.md
