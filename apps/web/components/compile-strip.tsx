@@ -41,14 +41,14 @@ export function CompileStrip() {
 
   return (
     <div ref={ref} className="grid gap-6 lg:grid-cols-2">
-      <div className="border border-hairline">
+      <div className="min-w-0 border border-hairline">
         <p className="border-b border-hairline px-4 py-2 font-mono text-xs text-graphite">
           {ex.sourcePath}
         </p>
         <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed">{ex.source}</pre>
       </div>
-      <div className="flex flex-col gap-4">
-        <div className="border border-hairline px-4 py-3 font-mono text-xs">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="overflow-x-auto border border-hairline px-4 py-3 font-mono text-xs">
           <p className={stage >= 1 ? '' : 'invisible'}>$ {ex.terminalCommand}</p>
           <p className={`mt-1 text-graphite ${stage >= 1 ? '' : 'invisible'}`}>
             {ex.terminalOutput}

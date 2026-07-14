@@ -9,6 +9,12 @@ export const metadata: Metadata = {
   title: 'forgedeck — compile your Next.js app into an MCP server',
   description:
     'One line of config. Nothing hand-written. forgedeck compiles Next.js apps into agent-operable MCP servers at build time.',
+  metadataBase: new URL('https://forgedeck.vercel.app'),
+  openGraph: {
+    title: 'forgedeck — compile your Next.js app into an MCP server',
+    description: 'One line of config. Nothing hand-written.',
+    type: 'website',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
