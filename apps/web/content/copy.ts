@@ -1,5 +1,5 @@
 export const copy = {
-  nav: { wordmark: 'forgedeck', docs: 'Docs', github: 'GitHub', version: 'v0.1.0' },
+  nav: { wordmark: 'forgedeck', docs: 'Docs', github: 'GitHub' },
   hero: {
     h1: 'Compile your Next.js app into an MCP server.',
     command: 'npx forgedeck init',
