@@ -7,6 +7,7 @@ const query = z.object({
   category: z.string().optional(),
 });
 
+/** List products, optionally filtered by category. */
 export async function GET(req: Request) {
   const params = query.parse(
     Object.fromEntries(new URL(req.url).searchParams),
@@ -16,14 +17,15 @@ export async function GET(req: Request) {
   });
   return Response.json(products);
 }`,
-  terminalCommand: 'forgedeck build',
-  terminalOutput: '✓ 1 route → .agent/actions/list-products.md, tools.json',
+  terminalCommand: 'next build',
+  terminalOutput:
+    'forgedeck ✓ 1 actions (1 reads enabled, 0 mutations locked) · 0 entities · 0 warnings → .agent/',
   tool: {
-    name: 'list_products',
+    name: 'get_products',
     effect: 'read' as const,
     route: 'GET /api/products',
     description: 'List products, optionally filtered by category.',
-    inputs: 'category?: string',
-    evidence: 'db.product.findMany · zod query schema',
+    inputs: '`category` (string, optional)',
+    evidence: 'effect read via db.product.findMany',
   },
 }
