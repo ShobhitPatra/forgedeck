@@ -1,4 +1,5 @@
 import { copy } from '@/content/copy'
+import { version } from '@/lib/version'
 
 export function Nav() {
   return (
@@ -11,7 +12,7 @@ export function Nav() {
         <a href="https://github.com/ShobhitPatra/forgedeck" className="hover:underline">
           {copy.nav.github}
         </a>
-        <span className="text-graphite">{copy.nav.version}</span>
+        <span className="text-graphite">v{version}</span>
       </div>
     </nav>
   )
