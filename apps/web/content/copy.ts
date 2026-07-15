@@ -31,7 +31,7 @@ export const copy = {
     heading: 'Locked by default',
     items: [
       {
-        effect: 'read' as const,
+        effects: ['read', 'write', 'irreversible'] as const,
         body: 'Every action is labeled read, write, or irreversible. The label travels with the tool.',
       },
       {
@@ -39,11 +39,11 @@ export const copy = {
         body: 'Mutations ship disabled. You enable them one by one, by exact name. No wildcards, ever.',
       },
       {
-        effect: 'write' as const,
+        marker: 'locked' as const,
         body: 'Unconfigured endpoints return 404. Without a token, your agent surface is invisible.',
       },
       {
-        effect: 'read' as const,
+        marker: 'auth' as const,
         body: "Your app's own auth still runs on every request. forgedeck never bypasses it.",
       },
     ],
