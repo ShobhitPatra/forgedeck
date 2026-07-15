@@ -4,6 +4,7 @@ export const copy = {
     h1: 'Compile your Next.js app into an MCP server.',
     command: 'npx forgedeck init',
     copied: 'Copied',
+    copyFailed: 'Copy failed',
     copyLabel: 'Copy command',
   },
   seeIt: {
