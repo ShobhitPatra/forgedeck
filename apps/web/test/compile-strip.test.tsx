@@ -25,14 +25,14 @@ describe('CompileStrip', () => {
   it('renders the final frame when reduced motion is preferred', () => {
     mockMatchMedia(true)
     render(<CompileStrip />)
-    expect(screen.getByText('list_products')).toBeTruthy()
+    expect(screen.getByText('get_products')).toBeTruthy()
     expect(screen.getByText('read')).toBeTruthy()
   })
 
   it('renders the final frame when IntersectionObserver is unavailable', () => {
     mockMatchMedia(false)
     render(<CompileStrip />)
-    expect(screen.getByText('list_products')).toBeTruthy()
+    expect(screen.getByText('get_products')).toBeTruthy()
   })
 
   it('always shows the source panel', () => {
