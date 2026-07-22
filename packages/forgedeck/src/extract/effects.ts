@@ -97,6 +97,25 @@ const DENYLIST = new Set([
   'decodeURIComponent',
 ])
 
+// Observability/telemetry loggers (papermark's `log`, Sentry's `captureException`,
+// ...) post diagnostics to a Slack/Sentry webhook, not user data. The scanner would
+// otherwise FOLLOW such a call into its POST `fetch` (`log -> postJsonWithTimeout ->
+// fetch`) and the external taxonomy would tag a `webhook` write — the exact chain that
+// demoted ~16 read GETs in papermark to `enabled:false`. Under the GET relaxation the
+// call is instead recorded as `telemetry ... unverified` and NOT followed, so a read
+// endpoint keeps its read effect while the side effect stays auditable in evidence.
+// Only bare direct calls match (`log(`); a data write like `prisma.log.create` is a
+// property-access client op and is unaffected. Non-GET methods are already write by
+// default, so this never unmasks a genuine mutation.
+const TELEMETRY_LOGGERS = new Set([
+  'log',
+  'logger',
+  'logError',
+  'logEvent',
+  'captureException',
+  'captureMessage',
+])
+
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
@@ -238,6 +257,13 @@ function scan(
 
   for (const { awaited, name } of directCalls(text)) {
     if (DENYLIST.has(name)) continue
+    // Under the GET relaxation a telemetry/observability logger is not followed into
+    // its diagnostics webhook (fire-and-forget Slack/Sentry POST); it is recorded as
+    // `unverified` so the read GET is not demoted while the effect stays auditable.
+    if (acc.getMode && TELEMETRY_LOGGERS.has(name)) {
+      acc.evidence.push(`telemetry call ${prefix}${name}, unverified`)
+      continue
+    }
     const fn = resolveCall(sf, name)
     if (fn) {
       const key = `${fn.getSourceFile().getFilePath()}:${fn.getStart()}`
