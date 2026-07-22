@@ -363,7 +363,7 @@ export function extractPagesApi(
         sourceFile: rel,
         exportName: 'default',
         description: `${method} ${path}`,
-        inputs: [...pathInputs, ...extractInputs(sf, text, inputEvidence)],
+        inputs: [...pathInputs, ...extractInputs(sf, text, inputEvidence, method)],
         effect,
         entitiesTouched,
         enabled: effect === 'read',
