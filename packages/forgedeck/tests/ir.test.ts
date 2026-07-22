@@ -30,6 +30,16 @@ describe('validateIR', () => {
   it('accepts a valid IR', () => {
     expect(validateIR(minimal).actions[0].name).toBe('get_products')
   })
+  // `minimal.coverage` has no `verdict` — this is exactly the shape a pre-verdict
+  // IR (e.g. one `diff` re-derives by recompiling an older git ref with today's
+  // code, or a hand-built fixture from before this field existed) would have.
+  // validateIR must backfill a computed verdict rather than throwing.
+  it('backfills a computed verdict on a pre-verdict IR shape', () => {
+    const ir = validateIR(minimal)
+    expect(ir.coverage.verdict).toBeDefined()
+    expect(ir.coverage.verdict.status).toBe('in')
+    expect(ir.coverage.verdict.extractedRatio).toBe(1)
+  })
   it('rejects enabled write actions', () => {
     const bad = structuredClone(minimal)
     bad.actions[0].effect = 'write'

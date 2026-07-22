@@ -15,6 +15,15 @@ import { loadMiddlewareMatchers } from './extract/auth.js'
 import { assembleWorkflows } from './extract/annotate.js'
 import { loadConfig } from './config/load.js'
 import { levenshtein } from './config/schema.js'
+import { computeScopeVerdict } from './ir/verdict.js'
+
+// Re-exported so callers (and the task-6 brief's own test sketch) can reach the
+// pure verdict function as `import { computeScopeVerdict } from './compile.js'`
+// without pulling in the rest of compile's machinery. The implementation lives
+// in `./ir/verdict.js` because `./ir/types.ts`'s `validateIR` also needs it (to
+// backfill a verdict on pre-verdict IR shapes) — putting it in compile.ts would
+// force types.ts into a circular value-import on compile.ts.
+export { computeScopeVerdict }
 
 // Minimal glob → RegExp for `exclude` patterns. Supports only `**` (any chars,
 // crossing `/`) and `*` (any chars except `/`) — deliberately no braces, negation,
@@ -221,6 +230,18 @@ export async function compile(projectDir: string): Promise<SemanticIR> {
     reason: `environment block ${name} present, not active`,
   }))
 
+  const skipped: CoverageItem[] = [
+    ...excludeSkips,
+    ...routes.skipped,
+    ...serverActions.skipped,
+    ...pagesApi.skipped,
+    ...collisionSkips,
+    ...allowlistSkips,
+    ...environmentSkips,
+    ...workflowWarnings,
+    ...(workspaceNote ? [workspaceNote] : []),
+  ]
+
   return validateIR({
     app: { name: loaded.appName, framework: loaded.framework },
     entities,
@@ -228,18 +249,9 @@ export async function compile(projectDir: string): Promise<SemanticIR> {
     workflows,
     coverage: {
       extracted: actions.length,
-      skipped: [
-        ...excludeSkips,
-        ...routes.skipped,
-        ...serverActions.skipped,
-        ...pagesApi.skipped,
-        ...collisionSkips,
-        ...allowlistSkips,
-        ...environmentSkips,
-        ...workflowWarnings,
-        ...(workspaceNote ? [workspaceNote] : []),
-      ],
+      skipped,
       ...(config ? { environment: config.resolvedEnvLine } : {}),
+      verdict: computeScopeVerdict(actions.length, skipped),
     },
   })
 }
