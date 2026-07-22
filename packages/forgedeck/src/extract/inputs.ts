@@ -1,4 +1,4 @@
-import { Node, type Expression, type SourceFile, type VariableDeclaration } from 'ts-morph'
+import { Node, Project, type Expression, type SourceFile, type VariableDeclaration } from 'ts-morph'
 import type { InputField } from '../ir/types.js'
 
 const ZOD_TYPE: Record<string, InputField['type']> = {
@@ -121,11 +121,84 @@ function resolveSchema(name: string, sf: SourceFile, depth: number, seen: Set<st
   return fieldsFromInitializer(decl.getInitializer(), decl.getSourceFile(), depth, seen)
 }
 
+// Shared by both the named-schema and inline-schema parse-call paths: a
+// `searchParams`/`req.query`/`fromEntries` argument means the parsed value
+// came from the query string, anything else is a body.
+function locationFromArgsText(argsText: string): InputField['location'] {
+  if (/searchParams|req\.query|fromEntries/.test(argsText)) return 'query'
+  return 'body'
+}
+
 function locationForParseCall(handlerBodyText: string, schemaName: string): InputField['location'] {
   const m = handlerBodyText.match(new RegExp(`\\b${schemaName}\\.(?:safeParse|parse)\\(([^)]*)`))
-  const arg = m?.[1] ?? ''
-  if (/searchParams|req\.query|fromEntries/.test(arg)) return 'query'
-  return 'body'
+  return locationFromArgsText(m?.[1] ?? '')
+}
+
+// A single scratch, in-memory project reused across calls to re-parse handler
+// body text into a real AST fragment (see `inlineZodParseSites`). The same
+// filename is overwritten each time, so nothing accumulates.
+let scratchProject: Project | undefined
+
+function scratch(): Project {
+  scratchProject ??= new Project({ useInMemoryFileSystem: true })
+  return scratchProject
+}
+
+// Sites where `.parse(...)`/`.safeParse(...)` is called directly on an inline
+// schema expression (e.g. `z.object({...})`) rather than a named identifier.
+// `handlerBodyText` is plain text, not a node from `sourceFile`'s own AST, so
+// there is no existing tree to walk — it is re-parsed here just enough to get
+// real Expression nodes, which are then handed to `fieldsFromInitializer`,
+// the same resolver the named-schema path uses.
+function inlineZodParseSites(
+  handlerBodyText: string,
+): Array<{ receiver: Expression; sf: SourceFile; argsText: string }> {
+  const sf = scratch().createSourceFile(
+    '__inline_zod_scratch__.ts',
+    `async function __h__() { ${handlerBodyText} }`,
+    { overwrite: true },
+  )
+  const sites: Array<{ receiver: Expression; sf: SourceFile; argsText: string }> = []
+  sf.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return
+    const callee = node.getExpression()
+    if (!Node.isPropertyAccessExpression(callee)) return
+    if (callee.getName() !== 'parse' && callee.getName() !== 'safeParse') return
+    const receiver = callee.getExpression()
+    // A bare identifier (`schema.parse(...)`) is the named-schema path above.
+    if (Node.isIdentifier(receiver)) return
+    sites.push({
+      receiver,
+      sf,
+      argsText: node
+        .getArguments()
+        .map((a) => a.getText())
+        .join(', '),
+    })
+  })
+  return sites
+}
+
+// `const { a, b: localB, c = 1 } = await req.json()` → body fields named
+// after the source key (`a`, `b`, `c`), types unknown (no schema to type
+// them), required (no way to tell optionality apart from a default).
+const REQ_JSON_DESTRUCTURE_RE = /const\s*\{([^}]+)\}\s*=\s*await\s+(?:req|request)\.json\(\)/g
+
+function reqJsonDestructureFields(handlerBodyText: string): InputField[] {
+  const fields: InputField[] = []
+  const seen = new Set<string>()
+  for (const m of handlerBodyText.matchAll(REQ_JSON_DESTRUCTURE_RE)) {
+    for (const raw of m[1].split(',')) {
+      // Drop a default first (`x = 1`), then an alias (`orig: local`) — the
+      // original key name is whatever remains before the colon.
+      const name = raw.split(':')[0].split('=')[0].trim()
+      if (/^\w+$/.test(name) && !seen.has(name)) {
+        seen.add(name)
+        fields.push({ name, type: 'unknown', required: true, location: 'body' })
+      }
+    }
+  }
+  return fields
 }
 
 // The App-Router idiom for reading a single query param: `searchParams.get('x')`,
@@ -164,6 +237,37 @@ export function extractInputs(
       names.add(f.name)
       result.push({ ...f, location })
     }
+  }
+
+  // Inline schema literals passed straight to `.parse`/`.safeParse` (no named
+  // declaration to resolve via `resolveSchema`): rank below named schemas,
+  // above the text-only fallbacks below.
+  for (const { receiver, sf, argsText } of inlineZodParseSites(handlerBodyText)) {
+    const fields = fieldsFromInitializer(receiver, sf, 0, new Set())
+    if (fields.length === 0) continue
+    const location = locationFromArgsText(argsText)
+    let added = false
+    for (const f of fields) {
+      if (names.has(f.name)) continue
+      names.add(f.name)
+      result.push({ ...f, location })
+      added = true
+    }
+    if (added) evidence?.push('inline zod object schema')
+  }
+
+  // `const { a, b } = await req.json()` destructuring: ranks below both zod
+  // paths (they carry real types/required), above searchParams and the bare
+  // fallback.
+  const jsonDestructure = reqJsonDestructureFields(handlerBodyText).filter(
+    (f) => !names.has(f.name),
+  )
+  if (jsonDestructure.length > 0) {
+    for (const f of jsonDestructure) {
+      names.add(f.name)
+      result.push(f)
+    }
+    evidence?.push('body params via req.json destructure')
   }
 
   // searchParams.get(...) fields are additive: zod already claimed a name wins
