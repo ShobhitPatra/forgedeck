@@ -222,6 +222,7 @@ export function extractRoutes(
       const handlerAuth = idiomAuth.auth === 'required' ? idiomAuth : wrapperAuth
       const { auth, evidence: authEvidence } = resolveAuth(handlerAuth, path, matchers)
 
+      const inputEvidence: string[] = []
       const action: ActionIR = {
         name: routeToName(method, path),
         kind: 'route',
@@ -230,7 +231,7 @@ export function extractRoutes(
         sourceFile: rel,
         exportName: method,
         description: `${method} ${path}`,
-        inputs: [...pathInputs, ...extractInputs(effectSf, body)],
+        inputs: [...pathInputs, ...extractInputs(effectSf, body, inputEvidence)],
         effect,
         entitiesTouched,
         enabled: effect === 'read',
@@ -242,6 +243,7 @@ export function extractRoutes(
           ...reEvidence,
           ...wrapperEvidence,
           ...evidence,
+          ...inputEvidence,
           ...authEvidence,
           ...(plumbing ? ['auth plumbing exclusion overridden by annotations'] : []),
         ],

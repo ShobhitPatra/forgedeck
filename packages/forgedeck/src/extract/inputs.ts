@@ -128,7 +128,28 @@ function locationForParseCall(handlerBodyText: string, schemaName: string): Inpu
   return 'body'
 }
 
-export function extractInputs(sourceFile: SourceFile, handlerBodyText: string): InputField[] {
+// The App-Router idiom for reading a single query param: `searchParams.get('x')`,
+// reached via `req.nextUrl.searchParams`, `new URL(req.url).searchParams`, or a
+// bare `searchParams` local. Every distinct literal name is a query input; zod
+// (when present) already knows real types/required, so this is purely additive.
+const SEARCHPARAM_RE = /\bsearchParams\.get\(\s*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]\s*\)/g
+
+function searchParamFields(handlerBodyText: string): InputField[] {
+  const names = new Set<string>()
+  for (const m of handlerBodyText.matchAll(SEARCHPARAM_RE)) names.add(m[1])
+  return [...names].map((name) => ({
+    name,
+    type: 'string' as const,
+    required: false,
+    location: 'query' as const,
+  }))
+}
+
+export function extractInputs(
+  sourceFile: SourceFile,
+  handlerBodyText: string,
+  evidence?: string[],
+): InputField[] {
   const used = [...handlerBodyText.matchAll(/\b(\w+)\.(?:safeParse|parse)\(/g)].map((m) => m[1])
   const result: InputField[] = []
   const names = new Set<string>()
@@ -144,6 +165,15 @@ export function extractInputs(sourceFile: SourceFile, handlerBodyText: string): 
       result.push({ ...f, location })
     }
   }
+
+  // searchParams.get(...) fields are additive: zod already claimed a name wins
+  // (it knows the real type/required), a survivor is a genuinely new input.
+  const searchParams = searchParamFields(handlerBodyText).filter((f) => !names.has(f.name))
+  if (searchParams.length > 0) {
+    result.push(...searchParams)
+    evidence?.push('query params via searchParams.get')
+  }
+
   if (result.length > 0) return result
 
   const bare: InputField[] = []

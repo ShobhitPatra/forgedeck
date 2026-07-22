@@ -120,11 +120,12 @@ describe('annotations leave un-annotated apps untouched (mini-shop frozen)', () 
     }
   })
 
-  it('keeps the four derived actions with their derived descriptions', () => {
+  it('keeps the five derived actions with their derived descriptions', () => {
     expect(mini.actions.map((a) => a.name).sort()).toEqual([
       'add_to_cart',
       'get_products',
       'get_products_by_id',
+      'get_stats',
       'post_orders',
     ])
     // derived descriptions are unchanged (no JSDoc carrier to harvest or override)

@@ -39,11 +39,11 @@ describe('emitBundle', () => {
     const idx = readFileSync(join(out, 'index.md'), 'utf8')
     expect(idx).toContain('mini-shop')
     expect(idx).toContain('3 entities')
-    expect(idx).toContain('4 actions')
+    expect(idx).toContain('5 actions')
   })
   it('coverage report renders', () => {
     const report = renderCoverage(ir)
-    expect(report).toContain('4 actions extracted')
+    expect(report).toContain('5 actions extracted')
     expect(report).toContain('0 skipped')
   })
 
