@@ -15,9 +15,10 @@ describe('compile', () => {
       'add_to_cart',
       'get_products',
       'get_products_by_id',
+      'get_stats',
       'post_orders',
     ])
-    expect(ir.coverage.extracted).toBe(4)
+    expect(ir.coverage.extracted).toBe(5)
     expect(ir.coverage.skipped).toEqual([])
   })
 

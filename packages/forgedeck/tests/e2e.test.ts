@@ -12,10 +12,10 @@ describe('forgedeck build e2e', () => {
       ['exec', 'tsx', 'src/cli/index.ts', 'build', 'tests/fixtures/mini-shop', '--out', out],
       { encoding: 'utf8' },
     )
-    expect(stdout).toContain('4 actions extracted')
+    expect(stdout).toContain('5 actions extracted')
     expect(existsSync(join(out, 'tools.json'))).toBe(true)
     const manifest = JSON.parse(readFileSync(join(out, 'tools.json'), 'utf8'))
-    expect(manifest.tools.filter((t: { enabled: boolean }) => t.enabled)).toHaveLength(2)
+    expect(manifest.tools.filter((t: { enabled: boolean }) => t.enabled)).toHaveLength(3)
     // The subprocess does a cold tsx start plus a full ts-morph compile; under the
     // suite's parallel load that can exceed the 5s default, so allow generous slack.
   }, 30000)

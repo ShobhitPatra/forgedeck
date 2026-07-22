@@ -354,6 +354,7 @@ export function extractPagesApi(
     const handlerActions: ActionIR[] = []
     const emit = (method: string, text: string, methodEvidence: string[]): void => {
       const { effect, entitiesTouched, evidence } = classifyEffect(text, { method, sf })
+      const inputEvidence: string[] = []
       handlerActions.push({
         name: routeToName(method, path),
         kind: 'pages-api',
@@ -362,7 +363,7 @@ export function extractPagesApi(
         sourceFile: rel,
         exportName: 'default',
         description: `${method} ${path}`,
-        inputs: [...pathInputs, ...extractInputs(sf, text)],
+        inputs: [...pathInputs, ...extractInputs(sf, text, inputEvidence)],
         effect,
         entitiesTouched,
         enabled: effect === 'read',
@@ -373,6 +374,7 @@ export function extractPagesApi(
         evidence: [
           ...methodEvidence,
           ...evidence,
+          ...inputEvidence,
           ...resolvedAuth.evidence,
           ...(plumbing ? ['auth plumbing exclusion overridden by annotations'] : []),
         ],

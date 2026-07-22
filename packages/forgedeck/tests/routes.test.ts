@@ -6,10 +6,11 @@ import { fakeLoaded } from './helpers'
 describe('extractRoutes', () => {
   const { actions, skipped } = extractRoutes(loadProject('tests/fixtures/mini-shop'))
 
-  it('extracts all three route handlers', () => {
+  it('extracts all four route handlers', () => {
     expect(actions.map((a) => a.name).sort()).toEqual([
       'get_products',
       'get_products_by_id',
+      'get_stats',
       'post_orders',
     ])
     expect(skipped).toEqual([])

@@ -117,13 +117,14 @@ export function extractServerActions(loaded: LoadedProject): {
           ? { auth: 'required' as const, evidence: ['auth required via server action client'] }
           : idiomAuth
       const { auth, evidence: authEvidence } = resolveAuth(baseAuth, undefined, [])
+      const inputEvidence: string[] = []
       const action: ActionIR = {
         name: fnToName(fnName),
         kind: 'server-action',
         sourceFile: rel,
         exportName: fnName,
         description: `server action ${fnName}`,
-        inputs: extractInputs(sf, body),
+        inputs: extractInputs(sf, body, inputEvidence),
         effect,
         entitiesTouched,
         enabled: effect === 'read',
@@ -131,7 +132,7 @@ export function extractServerActions(loaded: LoadedProject): {
         confidence: 'static',
         auth,
         preconditions: [],
-        evidence: [...wrapperEvidence, ...evidence, ...authEvidence],
+        evidence: [...wrapperEvidence, ...evidence, ...inputEvidence, ...authEvidence],
       }
 
       // A server action is a single-action declaration: act-specific tags apply.
