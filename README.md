@@ -2,7 +2,7 @@
 
 **Compile your Next.js app into an MCP server.**
 
-forgedeck reads your routes, server actions, and schemas at build time and emits the semantics agents need to operate your app — deterministic extraction, no LLM in the loop, nothing guessed.
+forgedeck reads your routes, server actions, and schemas at build time and emits the contract agents need to operate your app: which actions exist, what inputs they take, which ones are safe to touch. Deterministic extraction — no LLM in the loop, nothing guessed.
 
 ```bash
 npx forgedeck init
