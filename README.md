@@ -1,31 +1,35 @@
 # forgedeck
 
-**Compile your app into an MCP server.**
+**Compile your Next.js app into an MCP server.**
 
-Modern applications are built for humans. AI agents interact with them by scraping HTML, executing JavaScript, and guessing workflows. Applications expose _implementation_, not _intent_.
-
-Forgedeck is a compiler that translates applications into machine-understandable semantics. Point it at your Next.js repo and it emits:
-
-- **`.agent/` bundle** — a navigable Markdown tree describing your app's entities, actions, and effects, plus a `tools.json` manifest
-- **A runnable MCP server** — stdio, standalone HTTP, or served by your own app at `/api/mcp`
-- **A coverage report with a scope verdict** — what the compiler understood, what it skipped and why, and an honest `SCOPE: IN / PARTIAL / OUT` line telling you whether your app is inside the supported surface at all
+forgedeck reads your routes, server actions, and schemas at build time and emits the semantics agents need to operate your app — deterministic extraction, no LLM in the loop, nothing guessed.
 
 ```bash
 npx forgedeck init
 ```
 
-Because it runs in your build path, the semantic layer is regenerated on every build — always in sync with your code, never a hand-written integration drifting out of date. That is the entire bet: **zero authoring, zero maintenance, never stale.**
+## What a build gives you
 
-## No LLM in the core — by design
+- **`.agent/` bundle** — a readable Markdown tree describing every action your app exposes. Check it into your repo. Review it like code.
+- **A live MCP endpoint** — your app serves its own agent surface at `/api/mcp`. No separate server to deploy, nothing new to run.
+- **A coverage report** — see exactly what the compiler understood, with evidence for every claim it makes. If your app isn't supported yet, it says so plainly instead of emitting a thin surface.
 
-Forgedeck's compiler contains no LLM anywhere. Semantics are either **derived** (deterministic static analysis: route handlers, server actions, zod contracts, Prisma entities, call-graph effect classification, auth boundaries) or **written by you** (JSDoc `@agent` annotations). Nothing is guessed, nothing needs an API key, CI never makes a model call, and a build is reproducible byte-for-byte.
+Because it runs in your build path, the agent surface is regenerated on every build — always in sync with your code.
 
-## Safety by default
+## How it works
 
-- Every action carries an effect class: `read | write | irreversible`.
-- Mutating tools are **emitted disabled**. Enabling one takes an explicit per-action allowlist in `forgedeck.config.ts` — code describes, config authorizes.
-- Server actions are reachable only through opt-in, transparent bridge routes (`/api/.agent/*`) whose generated code is checked into your repo.
-- Unknown auth means locked. The `/api/mcp` route is an invisible 404 until you configure a token.
+forgedeck reads your source the way the TypeScript compiler does — nothing runs, nothing is guessed. Two passes:
+
+1. **Derive.** It walks every route handler and server action and works out what each one is: its name, the inputs it expects (from your zod schemas and request handling), whether it reads or writes data, and what auth stands in front of it. Each conclusion is recorded with the evidence behind it.
+2. **Annotate.** Where the code alone can't express intent — a better description, a precondition worth stating — you add a JSDoc `@agent` comment next to the handler. Annotations always take precedence over derived facts.
+
+```
+Your app (Next.js)
+   ↓  derive     — routes, server actions, schemas, effects, auth
+   ↓  annotate   — @agent comments, only where you want to say more
+   ↓
+.agent/ bundle · MCP server · coverage report
+```
 
 ## What you get
 
@@ -38,31 +42,24 @@ Forgedeck's compiler contains no LLM anywhere. Semantics are either **derived** 
 | Public storefront     | separate pruned bundle exposing only unauthenticated reads                      |
 | Scaffolding           | `forgedeck init`                                                                |
 
-## Supported scope (deliberately narrow)
+## Locked by default
 
-Current wedge: **Next.js apps whose surface is REST route handlers (App Router + `pages/api`) and server actions.** Inside that scope the compiler extracts typed input contracts from zod schemas (named, inline, handler-local, or passed through wrapper helpers), query parameters, request bodies, Prisma entities, and effect/auth classifications.
+- Every action is labeled `read`, `write`, or `irreversible`. The label travels with the tool.
+- Mutations ship disabled. You enable them one by one, by exact name. No wildcards, ever.
+- Unconfigured endpoints return 404. Without a token, your agent surface is invisible.
+- Your app's own auth still runs on every request. forgedeck never bypasses it.
 
-Out of scope today, tracked openly: tRPC procedure extraction ([#72](https://github.com/ShobhitPatra/forgedeck/issues/72)), headless-backend data surfaces ([#73](https://github.com/ShobhitPatra/forgedeck/issues/73)). The compile tells you when you're out of scope — the `SCOPE` verdict exists so the tool says "I can't help you yet" instead of emitting a thin, useless surface.
+## What's supported
 
-## How it works
+Next.js apps built on route handlers (App Router or `pages/api`) and server actions. tRPC ([#72](https://github.com/ShobhitPatra/forgedeck/issues/72)) and headless backends ([#73](https://github.com/ShobhitPatra/forgedeck/issues/73)) are next — the compiler tells you honestly when your app is outside what it can handle today.
 
-```
-Your app (Next.js)
-   ↓  static extraction   — routes, server actions, zod contracts, entities,
-   |                        call-graph effects, auth boundaries (deterministic)
-   ↓  annotations         — JSDoc @agent tags, only where derivation falls short
-Semantic IR
-   ↓
-.agent/ bundle · MCP server · coverage report + scope verdict
-```
+## Measured, not promised
 
-## Honesty note
-
-Forgedeck is developed against a pre-registered, one-shot benchmark ([OperateBench](https://github.com/operatebench)) that compares compiled bundles against browser-driving agents and hand-written MCP servers on real self-hosted apps — with kill criteria declared before each run and results published however they land. The current scope fence and roadmap order come directly from what that benchmark found.
+forgedeck is developed against [OperateBench](https://github.com/operatebench/operatebench) — an open benchmark asking whether AI agents can operate real web apps. We built it and pre-registered the methodology before running it, and results publish however they land.
 
 ## Status
 
-Early, private development. Not yet released.
+Early development. Version 0.x.
 
 ## License
 
