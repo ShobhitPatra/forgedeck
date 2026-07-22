@@ -97,24 +97,22 @@ const DENYLIST = new Set([
   'decodeURIComponent',
 ])
 
-// Observability/telemetry loggers (papermark's `log`, Sentry's `captureException`,
-// ...) post diagnostics to a Slack/Sentry webhook, not user data. The scanner would
-// otherwise FOLLOW such a call into its POST `fetch` (`log -> postJsonWithTimeout ->
-// fetch`) and the external taxonomy would tag a `webhook` write — the exact chain that
-// demoted ~16 read GETs in papermark to `enabled:false`. Under the GET relaxation the
-// call is instead recorded as `telemetry ... unverified` and NOT followed, so a read
-// endpoint keeps its read effect while the side effect stays auditable in evidence.
-// Only bare direct calls match (`log(`); a data write like `prisma.log.create` is a
-// property-access client op and is unaffected. Non-GET methods are already write by
-// default, so this never unmasks a genuine mutation.
-const TELEMETRY_LOGGERS = new Set([
-  'log',
-  'logger',
-  'logError',
-  'logEvent',
-  'captureException',
-  'captureMessage',
-])
+// Observability/telemetry loggers (papermark's `log`, Sentry's `captureException`/
+// `captureMessage`) post diagnostics to a Slack/Sentry webhook, not user data. The
+// scanner still FOLLOWS such a call into its subtree as normal — a real DB write
+// hiding behind a telemetry name (e.g. an audit-log `prisma.auditLog.create` before
+// the Slack POST) must still count and still demote a GET to `write` — but the
+// fire-and-forget webhook/external-fetch signal detected inside that subtree
+// (`log -> postJsonWithTimeout -> fetch`) is suppressed so it alone cannot demote a
+// read GET. This is the exact chain that demoted ~16 read GETs in papermark to
+// `enabled:false`; the call is recorded as `telemetry ... webhook suppressed,
+// unverified` so the side effect stays auditable in evidence. Only bare direct
+// calls match (`log(`); a data write like `prisma.log.create` is a property-access
+// client op and is unaffected. Non-GET methods are already write by default, so
+// this never unmasks (or hides) a genuine mutation there. Scoped to Sentry's pair
+// plus the generic `log` name — names that never touch the app DB by convention;
+// deliberately NOT `logger`/`logError`/`logEvent` (unevidenced beyond `log` itself).
+const TELEMETRY_LOGGERS = new Set(['log', 'captureException', 'captureMessage'])
 
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -127,6 +125,10 @@ interface Acc {
   evidence: string[]
   unresolved: boolean
   getMode: boolean
+  // Set while scanning inside a telemetry logger's resolved subtree (GET mode
+  // only); scoped to that subtree by save/restore around the recursive `scan`
+  // call, so it never leaks to sibling calls once the subtree returns.
+  suppressWebhook: boolean
 }
 
 // `prisma.$transaction(async (tx) => ...)` — the callback param is a scoped DB
@@ -249,6 +251,13 @@ function scan(
   }
 
   for (const ext of detectExternal(text)) {
+    // Within a telemetry logger's own subtree the fire-and-forget webhook POST is
+    // the exact signal FINDING 1/2C relax around; it is dropped here (not counted,
+    // not re-evidenced) rather than tagged a write — the `telemetry call ...
+    // webhook suppressed, unverified` evidence pushed at the call site already
+    // documents the suppression. Non-webhook external taxonomy (stripe/email/
+    // storage) is unaffected and still counts even inside the subtree.
+    if (ext.tag === 'webhook' && acc.suppressWebhook) continue
     acc.external.add(ext.tag)
     acc.evidence.push(`effect write via ${prefix}${ext.snippet} (external ${ext.tag})`)
   }
@@ -257,21 +266,25 @@ function scan(
 
   for (const { awaited, name } of directCalls(text)) {
     if (DENYLIST.has(name)) continue
-    // Under the GET relaxation a telemetry/observability logger is not followed into
-    // its diagnostics webhook (fire-and-forget Slack/Sentry POST); it is recorded as
-    // `unverified` so the read GET is not demoted while the effect stays auditable.
-    if (acc.getMode && TELEMETRY_LOGGERS.has(name)) {
-      acc.evidence.push(`telemetry call ${prefix}${name}, unverified`)
-      continue
-    }
+    // Under the GET relaxation a telemetry/observability logger IS followed into its
+    // subtree as normal (a real DB write hiding behind the name must still count and
+    // demote the GET); only its diagnostics webhook (fire-and-forget Slack/Sentry
+    // POST) is suppressed once inside, via `acc.suppressWebhook`. The call site is
+    // still marked in evidence so the effect stays auditable either way.
+    const isTelemetry = acc.getMode && TELEMETRY_LOGGERS.has(name)
+    if (isTelemetry)
+      acc.evidence.push(`telemetry call ${prefix}${name}, webhook suppressed, unverified`)
     const fn = resolveCall(sf, name)
     if (fn) {
       const key = `${fn.getSourceFile().getFilePath()}:${fn.getStart()}`
       if (visited.has(key)) continue
       visited.add(key)
       const body = fn.getBody()?.getText() ?? fn.getText()
+      const prevSuppress = acc.suppressWebhook
+      if (isTelemetry) acc.suppressWebhook = true
       scan(body, fn.getSourceFile(), [...chain, name], depth + 1, visited, acc)
-    } else if (awaited) {
+      acc.suppressWebhook = prevSuppress
+    } else if (awaited && !isTelemetry) {
       // Under the bounded GET relaxation the call is recorded as `unverified` (it
       // does not force write for a GET with no other write signal); elsewhere it
       // stays the conservative write signal. Either way the trail is preserved.
@@ -314,6 +327,7 @@ export function classifyEffect(
     evidence: [],
     unresolved: false,
     getMode: opts.method?.toUpperCase() === 'GET',
+    suppressWebhook: false,
   }
   scan(bodyText, opts.sf, [], opts.depth ?? 0, new Set(), acc)
   return {

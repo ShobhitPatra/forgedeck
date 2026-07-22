@@ -31,6 +31,18 @@ describe('parameterless GET collection routes', () => {
     expect(whoami!.effect).toBe('read')
     expect(whoami!.enabled).toBe(true)
   })
+
+  // Fix round 1, FINDING 1: the telemetry relaxation must not discard a genuine
+  // write signal that lives inside the logger's own subtree. `get_audit_whoami`'s
+  // `log` helper (lib/log-audit.ts) writes `prisma.auditLog.create` before its
+  // Slack POST — the GET must still classify `write` and stay disabled.
+  it('classifies a GET whose telemetry log helper contains a genuine DB write as write and disables it', async () => {
+    const ir = await compile('tests/fixtures/session-shop')
+    const auditWhoami = ir.actions.find((a) => a.name === 'get_audit_whoami')
+    expect(auditWhoami).toBeDefined()
+    expect(auditWhoami!.effect).toBe('write')
+    expect(auditWhoami!.enabled).toBe(false)
+  })
 })
 
 describe('telemetry logger relaxation (classifyEffect)', () => {
@@ -55,8 +67,37 @@ describe('telemetry logger relaxation (classifyEffect)', () => {
     const r = classifyEffect(sf.getFunction('GET')!.getBodyText()!, { method: 'GET', sf })
     expect(r.effect).toBe('read')
     expect(r.external).toEqual([])
-    expect(r.evidence.join(' ')).toContain('telemetry call log, unverified')
+    expect(r.evidence.join(' ')).toContain('telemetry call log, webhook suppressed, unverified')
     expect(r.evidence.join(' ')).toContain('effect read via prisma.product.findMany')
+  })
+
+  // Fix round 1, FINDING 1: the telemetry relaxation follows the logger's subtree
+  // (rather than skipping it wholesale) so a genuine DB write hiding inside a
+  // telemetry-named call still counts. Only the webhook/external-fetch signal is
+  // suppressed at the point it is detected.
+  it('still detects a write inside a telemetry logger subtree even though its webhook is suppressed', () => {
+    const project = new Project({ useInMemoryFileSystem: true })
+    project.createSourceFile(
+      '/lib/log.ts',
+      `const post = async (u: string, b: unknown) => fetch(u, { method: 'POST', body: JSON.stringify(b) })
+       export const log = async (o: { message: string }) => {
+         await prisma.auditLog.create({ data: o })
+         return post('https://hooks.slack', o)
+       }`,
+    )
+    const sf = project.createSourceFile(
+      '/app/api/x/route.ts',
+      `import { log } from '../../../lib/log'
+       export async function GET() {
+         const rows = await prisma.product.findMany()
+         try { return rows } catch (e) { log({ message: String(e) }) }
+       }`,
+    )
+    const r = classifyEffect(sf.getFunction('GET')!.getBodyText()!, { method: 'GET', sf })
+    expect(r.effect).toBe('write')
+    expect(r.external).toEqual([])
+    expect(r.evidence.join(' ')).toContain('telemetry call log, webhook suppressed, unverified')
+    expect(r.evidence.join(' ')).toContain('effect write via log -> prisma.auditLog.create')
   })
 
   it('still demotes a GET that inlines its own POST fetch (relaxation is narrow to named loggers)', () => {
