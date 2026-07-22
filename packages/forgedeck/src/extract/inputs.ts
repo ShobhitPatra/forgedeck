@@ -144,9 +144,74 @@ function locationFromArgsText(argsText: string): InputField['location'] {
   return 'body'
 }
 
-function locationForParseCall(handlerBodyText: string, schemaName: string): InputField['location'] {
+// The argument text of a named schema's `.parse`/`.safeParse` call (whatever the
+// schema was handed to validate). Empty when the call cannot be located.
+function argsForParseCall(handlerBodyText: string, schemaName: string): string {
   const m = handlerBodyText.match(new RegExp(`\\b${schemaName}\\.(?:safeParse|parse)\\(([^)]*)`))
-  return locationFromArgsText(m?.[1] ?? '')
+  return m?.[1] ?? ''
+}
+
+// A parse argument "parses the request" when it traces to the incoming request
+// object — its body or its query — rather than to a derived/nested local. Body
+// forms (`req.body`, `request.body`, `await req.json()`) and query forms
+// (`req.query`, `searchParams`, `Object.fromEntries(...)`, `req.url`) all count.
+// A schema whose argument is any other identifier (e.g. `linkData.watermarkConfig`)
+// is an *interior* schema validating a derived value, not the request contract.
+const REQUEST_BOUND_ARG_RE =
+  /\bsearchParams\b|\bfromEntries\b|\b(?:req|request)\.(?:body|query|url)\b|\b(?:req|request)\.json\s*\(/
+
+// A structural read of the request body/query into a destructure —
+// `const { ... } = req.body | req.query | await req.json()`. Its presence proves
+// the handler parses the request even when no zod schema guards it, so an interior
+// schema must not stand in for the request contract when one of these exists.
+const REQUEST_READ_RE =
+  /const\s*\{[^}]*\}\s*=\s*(?:await\s+)?(?:req|request)\.(?:body|query|json\s*\(\s*\))/
+
+function hasRequestRead(handlerBodyText: string): boolean {
+  return REQUEST_READ_RE.test(handlerBodyText)
+}
+
+// A one-hop request-derived local — `const body = await req.json()`, `const b = req.body`,
+// `let q = req.query`, optionally typed (`const body: Raw = await req.json()`), `var`
+// forms too. A parse-site whose argument is exactly one of these bare identifiers traces
+// to the request just as directly as writing `req.body` inline — it *is* the request
+// read, one variable removed. A member access off it (`body.foo`) is NOT one-hop: that is
+// a derived sub-object, same as the already-interior `request.body.items` case, so only
+// the bare identifier itself qualifies, never `X.member`.
+const ONE_HOP_REQUEST_VAR_RE =
+  /\b(?:const|let|var)\s+(\w+)\s*(?::[^=]+)?=\s*(?:await\s+)?(?:req|request)\.(?:(body)|(query)|json\s*\(\s*\))/g
+
+// Map of one-hop request variable name -> the location it traces to, scanned once per
+// handler so both the "is any site request-bound" check and each site's own location
+// can consult it.
+function collectOneHopRequestVars(handlerBodyText: string): Map<string, InputField['location']> {
+  const vars = new Map<string, InputField['location']>()
+  for (const m of handlerBodyText.matchAll(ONE_HOP_REQUEST_VAR_RE)) {
+    const [, name, , isQuery] = m
+    // Unmatched `isBody`/`isQuery` groups mean the `req.json()` alternative fired —
+    // that is a body read too, same as the `body` group matching.
+    vars.set(name, isQuery ? 'query' : 'body')
+  }
+  return vars
+}
+
+// A parse argument is request-bound either textually (see `REQUEST_BOUND_ARG_RE`) or
+// because it is exactly a one-hop request variable's bare name.
+function isRequestBoundArg(
+  argsText: string,
+  oneHopVars: Map<string, InputField['location']>,
+): boolean {
+  return REQUEST_BOUND_ARG_RE.test(argsText) || oneHopVars.has(argsText.trim())
+}
+
+// The location a parse argument resolves to: a one-hop request variable carries its own
+// recorded location (a query-sourced local must not default to 'body'); otherwise fall
+// back to the textual classifier.
+function locationForArg(
+  argsText: string,
+  oneHopVars: Map<string, InputField['location']>,
+): InputField['location'] {
+  return oneHopVars.get(argsText.trim()) ?? locationFromArgsText(argsText)
 }
 
 // A single scratch, in-memory project reused across calls to re-parse handler
@@ -289,11 +354,40 @@ export function extractInputs(
   const used = [...handlerBodyText.matchAll(/\b(\w+)\.(?:safeParse|parse)\(/g)].map((m) => m[1])
   const result: InputField[] = []
   const names = new Set<string>()
+
+  const inlineSites = inlineZodParseSites(handlerBodyText)
+  const wrapperSites = wrapperSchemaSites(handlerBodyText, sourceFile)
+  const oneHopVars = collectOneHopRequestVars(handlerBodyText)
+
+  // Does ANY site in this handler parse the request itself — a named or inline
+  // schema whose parse argument traces to the request body/query (directly, or one
+  // hop through a `const body = await req.json()`-style local), a wrapper that
+  // receives the request, or a bare `const {..} = req.body/req.query/req.json()`
+  // read? When one exists, an interior schema (one validating a derived/nested
+  // value) must NOT masquerade as the request contract: it is demoted so the
+  // request-parsing site — or the body/query fallback below — supplies the fields
+  // agents actually send. When NONE exists, the interior schema is the only signal
+  // there is, so it is kept exactly as before (never regress an interior-only app).
+  const namedRequestBound = used.some(
+    (n) => n !== 'JSON' && isRequestBoundArg(argsForParseCall(handlerBodyText, n), oneHopVars),
+  )
+  const inlineRequestBound = inlineSites.some((s) => isRequestBoundArg(s.argsText, oneHopVars))
+  const requestParsingPresent =
+    namedRequestBound ||
+    inlineRequestBound ||
+    wrapperSites.length > 0 ||
+    hasRequestRead(handlerBodyText)
+
   for (const schemaName of used) {
     if (schemaName === 'JSON') continue
     const fields = resolveSchema(schemaName, sourceFile, 0, new Set())
     if (fields.length === 0) continue
-    const location = locationForParseCall(handlerBodyText, schemaName)
+    const argsText = argsForParseCall(handlerBodyText, schemaName)
+    // An interior schema (its parse argument is not the request, including one hop
+    // through a request-derived local) yields to any request-parsing site in the
+    // same handler and is skipped entirely here.
+    if (requestParsingPresent && !isRequestBoundArg(argsText, oneHopVars)) continue
+    const location = locationForArg(argsText, oneHopVars)
     // Multi-schema handlers merge; the first declaration of a name wins.
     for (const f of fields) {
       if (names.has(f.name)) continue
@@ -305,10 +399,10 @@ export function extractInputs(
   // Inline schema literals passed straight to `.parse`/`.safeParse` (no named
   // declaration to resolve via `resolveSchema`): rank below named schemas,
   // above the text-only fallbacks below.
-  for (const { receiver, sf, argsText } of inlineZodParseSites(handlerBodyText)) {
+  for (const { receiver, sf, argsText } of inlineSites) {
     const fields = fieldsFromInitializer(receiver, sf, 0, new Set())
     if (fields.length === 0) continue
-    const location = locationFromArgsText(argsText)
+    const location = locationForArg(argsText, oneHopVars)
     let added = false
     for (const f of fields) {
       if (names.has(f.name)) continue
@@ -324,7 +418,7 @@ export function extractInputs(
   // text-only fallbacks. The wrapper hides query-vs-body, so a GET reads query
   // and every other method (or an unknown method) reads a body.
   const wrapperLocation: InputField['location'] = method === 'GET' ? 'query' : 'body'
-  for (const { fields, fnName } of wrapperSchemaSites(handlerBodyText, sourceFile)) {
+  for (const { fields, fnName } of wrapperSites) {
     let added = false
     for (const f of fields) {
       if (names.has(f.name)) continue

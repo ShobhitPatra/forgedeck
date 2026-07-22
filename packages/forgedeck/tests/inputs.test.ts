@@ -159,6 +159,89 @@ describe('extractInputs', () => {
       { name: 'age', type: 'number', required: false, location: 'body' },
     ])
   })
+  it('demotes an interior schema to the req.body destructure (papermark shape)', () => {
+    // A pages-api POST that destructures req.body for its real contract and, deeper
+    // in the handler, validates a *derived* nested object with a named schema. The
+    // interior schema must not claim the body — the request read wins.
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const WatermarkConfigSchema = z.object({
+        text: z.string(),
+        color: z.string(),
+        opacity: z.number(),
+      })
+      export default async function handler(req, res) {
+        const { targetId, linkType, teamId, ...rest } = req.body
+        if (rest.enableWatermark) {
+          const validation = WatermarkConfigSchema.safeParse(rest.watermarkConfig)
+          if (!validation.success) return res.status(400).end()
+        }
+        return res.json({ ok: true })
+      }
+    `)
+    const body = sf.getFunctions()[0].getBodyText()!
+    const fields = extractInputs(sf, body)
+    const names = fields.map((f) => f.name).sort()
+    expect(names).toEqual(['linkType', 'targetId', 'teamId'])
+    for (const decoy of ['text', 'color', 'opacity']) {
+      expect(names).not.toContain(decoy)
+    }
+    for (const f of fields) expect(f.location).toBe('body')
+  })
+  it('keeps an interior-only schema when no request-parsing site exists', () => {
+    // Inverse guard: the ONLY schema validates a derived value and nothing reads
+    // the request. The (sometimes-wrong) interior heuristic beats emitting nothing,
+    // so its fields are preserved exactly as before.
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const ConfigSchema = z.object({ text: z.string(), opacity: z.number() })
+      export default async function handler(req, res) {
+        const config = buildDefaultConfig()
+        ConfigSchema.parse(config)
+        return res.json({ ok: true })
+      }
+    `)
+    const body = sf.getFunctions()[0].getBodyText()!
+    expect(extractInputs(sf, body)).toEqual([
+      { name: 'text', type: 'string', required: true, location: 'body' },
+      { name: 'opacity', type: 'number', required: true, location: 'body' },
+    ])
+  })
+  it('keeps a one-hop request-body variable schema request-bound even when another request read exists', () => {
+    // Regression: `const body = await req.json(); CreateSchema.parse(body)` is a
+    // one-hop request variable, not an interior value — it must classify as
+    // request-parsing on its own. Adding an unrelated `req.query` read elsewhere
+    // in the handler must not demote it: before the fix, `hasRequestRead` fires
+    // from the query read, `body` fails the textual REQUEST_BOUND_ARG_RE (it's a
+    // bare identifier), and the real body contract (email/qty) is wrongly skipped
+    // in favor of the decoy interior schema being suppressed too — net result:
+    // only `linkId` survives, strictly worse than main.
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const CreateSchema = z.object({
+        email: z.string(),
+        qty: z.number(),
+      })
+      const DecoySchema = z.object({ text: z.string() })
+      export async function POST(req) {
+        const body = await req.json()
+        const parsed = CreateSchema.parse(body)
+        const { linkId } = req.query
+        if (parsed.decorate) {
+          DecoySchema.parse(parsed.decoration)
+        }
+        return { parsed, linkId }
+      }
+    `)
+    const body = sf.getFunctions()[0].getBodyText()!
+    const fields = extractInputs(sf, body)
+    const names = fields.map((f) => f.name).sort()
+    expect(names).toContain('email')
+    expect(names).toContain('qty')
+    // The decoy interior schema (parsed.decoration is not request-bound) must
+    // stay demoted.
+    expect(names).not.toContain('text')
+  })
   it('extracts bare req query destructuring', () => {
     const sf = fileFrom(`
       export default async function handler(req, res) {
