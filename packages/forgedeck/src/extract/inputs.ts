@@ -26,6 +26,21 @@ function findDecl(sf: SourceFile, name: string): VariableDeclaration | undefined
   return undefined
 }
 
+// Find a variable declaration by name anywhere in a source file, including ones
+// nested inside a function body. `SourceFile.getVariableDeclaration` (used by
+// `findDecl`) only sees top-level declarations, so the wrapper path — which
+// resolves schemas declared inside the handler — needs this deeper search.
+function findNestedDecl(sf: SourceFile, name: string): VariableDeclaration | undefined {
+  let found: VariableDeclaration | undefined
+  sf.forEachDescendant((node, traversal) => {
+    if (Node.isVariableDeclaration(node) && node.getName() === name) {
+      found = node
+      traversal.stop()
+    }
+  })
+  return found
+}
+
 function fieldsFromObjectLiteral(arg: Node | undefined): RawField[] {
   if (!arg || !Node.isObjectLiteralExpression(arg)) return []
   const fields: RawField[] = []
@@ -179,6 +194,53 @@ function inlineZodParseSites(
   return sites
 }
 
+// Calls that receive a zod schema as an argument — the `parseRequest(req, schema)`
+// wrapper idiom (umami's). The schema is validated *inside* the wrapper, so it
+// never appears as a `.parse`/`.safeParse` receiver in the handler and the direct
+// detectors above miss it entirely. Any argument that is a named schema (resolved
+// locally first, then module-level/imported) or an inline `z.object` literal is
+// pulled in. The wrapper hides whether the schema guards the query or the body, so
+// location is decided by the caller's HTTP method, not by the call text.
+function wrapperSchemaSites(
+  handlerBodyText: string,
+  sourceFile: SourceFile,
+): Array<{ fields: RawField[]; fnName: string }> {
+  const sf = scratch().createSourceFile(
+    '__wrapper_schema_scratch__.ts',
+    `async function __h__() { ${handlerBodyText} }`,
+    { overwrite: true },
+  )
+  const sites: Array<{ fields: RawField[]; fnName: string }> = []
+  sf.forEachDescendant((node) => {
+    if (!Node.isCallExpression(node)) return
+    const callee = node.getExpression()
+    // A `.parse`/`.safeParse` call is owned by the direct/inline paths; skipping
+    // it also guarantees an inline `z.object` literal that is itself a parse
+    // receiver is never double-counted here (it is not an argument anyway).
+    if (Node.isPropertyAccessExpression(callee)) {
+      const m = callee.getName()
+      if (m === 'parse' || m === 'safeParse') return
+    }
+    const fnName = callee.getText()
+    for (const arg of node.getArguments()) {
+      let fields: RawField[] = []
+      if (Node.isIdentifier(arg)) {
+        // A schema declared inside the handler body wins (umami's idiom). It is a
+        // *nested* declaration, which `SourceFile.getVariableDeclaration` (used by
+        // `resolveSchema`) does not see — so search the scratch AST directly first,
+        // then fall back to a module-level/imported schema in the real file.
+        const local = findNestedDecl(sf, arg.getText())
+        if (local) fields = fieldsFromInitializer(local.getInitializer(), sf, 0, new Set())
+        if (fields.length === 0) fields = resolveSchema(arg.getText(), sourceFile, 0, new Set())
+      } else if (Node.isCallExpression(arg)) {
+        fields = fieldsFromInitializer(arg, sf, 0, new Set())
+      }
+      if (fields.length > 0) sites.push({ fields, fnName })
+    }
+  })
+  return sites
+}
+
 // `const { a, b: localB, c = 1 } = await req.json()` → body fields named
 // after the source key (`a`, `b`, `c`), types unknown (no schema to type
 // them), required (no way to tell optionality apart from a default).
@@ -222,6 +284,7 @@ export function extractInputs(
   sourceFile: SourceFile,
   handlerBodyText: string,
   evidence?: string[],
+  method?: string,
 ): InputField[] {
   const used = [...handlerBodyText.matchAll(/\b(\w+)\.(?:safeParse|parse)\(/g)].map((m) => m[1])
   const result: InputField[] = []
@@ -254,6 +317,22 @@ export function extractInputs(
       added = true
     }
     if (added) evidence?.push('inline zod object schema')
+  }
+
+  // Wrapper-call schemas (`parseRequest(req, schema)`): ranks below both direct
+  // zod paths (a schema also parsed directly keeps that location), above the
+  // text-only fallbacks. The wrapper hides query-vs-body, so a GET reads query
+  // and every other method (or an unknown method) reads a body.
+  const wrapperLocation: InputField['location'] = method === 'GET' ? 'query' : 'body'
+  for (const { fields, fnName } of wrapperSchemaSites(handlerBodyText, sourceFile)) {
+    let added = false
+    for (const f of fields) {
+      if (names.has(f.name)) continue
+      names.add(f.name)
+      result.push({ ...f, location: wrapperLocation })
+      added = true
+    }
+    if (added) evidence?.push(`schema via wrapper call ${fnName}`)
   }
 
   // `const { a, b } = await req.json()` destructuring: ranks below both zod

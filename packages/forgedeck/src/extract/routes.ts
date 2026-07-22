@@ -231,7 +231,7 @@ export function extractRoutes(
         sourceFile: rel,
         exportName: method,
         description: `${method} ${path}`,
-        inputs: [...pathInputs, ...extractInputs(effectSf, body, inputEvidence)],
+        inputs: [...pathInputs, ...extractInputs(effectSf, body, inputEvidence, method)],
         effect,
         entitiesTouched,
         enabled: effect === 'read',
