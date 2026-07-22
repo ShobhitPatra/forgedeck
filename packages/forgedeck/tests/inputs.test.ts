@@ -207,6 +207,41 @@ describe('extractInputs', () => {
       { name: 'opacity', type: 'number', required: true, location: 'body' },
     ])
   })
+  it('keeps a one-hop request-body variable schema request-bound even when another request read exists', () => {
+    // Regression: `const body = await req.json(); CreateSchema.parse(body)` is a
+    // one-hop request variable, not an interior value — it must classify as
+    // request-parsing on its own. Adding an unrelated `req.query` read elsewhere
+    // in the handler must not demote it: before the fix, `hasRequestRead` fires
+    // from the query read, `body` fails the textual REQUEST_BOUND_ARG_RE (it's a
+    // bare identifier), and the real body contract (email/qty) is wrongly skipped
+    // in favor of the decoy interior schema being suppressed too — net result:
+    // only `linkId` survives, strictly worse than main.
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const CreateSchema = z.object({
+        email: z.string(),
+        qty: z.number(),
+      })
+      const DecoySchema = z.object({ text: z.string() })
+      export async function POST(req) {
+        const body = await req.json()
+        const parsed = CreateSchema.parse(body)
+        const { linkId } = req.query
+        if (parsed.decorate) {
+          DecoySchema.parse(parsed.decoration)
+        }
+        return { parsed, linkId }
+      }
+    `)
+    const body = sf.getFunctions()[0].getBodyText()!
+    const fields = extractInputs(sf, body)
+    const names = fields.map((f) => f.name).sort()
+    expect(names).toContain('email')
+    expect(names).toContain('qty')
+    // The decoy interior schema (parsed.decoration is not request-bound) must
+    // stay demoted.
+    expect(names).not.toContain('text')
+  })
   it('extracts bare req query destructuring', () => {
     const sf = fileFrom(`
       export default async function handler(req, res) {
