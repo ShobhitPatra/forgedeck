@@ -144,9 +144,31 @@ function locationFromArgsText(argsText: string): InputField['location'] {
   return 'body'
 }
 
-function locationForParseCall(handlerBodyText: string, schemaName: string): InputField['location'] {
+// The argument text of a named schema's `.parse`/`.safeParse` call (whatever the
+// schema was handed to validate). Empty when the call cannot be located.
+function argsForParseCall(handlerBodyText: string, schemaName: string): string {
   const m = handlerBodyText.match(new RegExp(`\\b${schemaName}\\.(?:safeParse|parse)\\(([^)]*)`))
-  return locationFromArgsText(m?.[1] ?? '')
+  return m?.[1] ?? ''
+}
+
+// A parse argument "parses the request" when it traces to the incoming request
+// object — its body or its query — rather than to a derived/nested local. Body
+// forms (`req.body`, `request.body`, `await req.json()`) and query forms
+// (`req.query`, `searchParams`, `Object.fromEntries(...)`, `req.url`) all count.
+// A schema whose argument is any other identifier (e.g. `linkData.watermarkConfig`)
+// is an *interior* schema validating a derived value, not the request contract.
+const REQUEST_BOUND_ARG_RE =
+  /\bsearchParams\b|\bfromEntries\b|\b(?:req|request)\.(?:body|query|url)\b|\b(?:req|request)\.json\s*\(/
+
+// A structural read of the request body/query into a destructure —
+// `const { ... } = req.body | req.query | await req.json()`. Its presence proves
+// the handler parses the request even when no zod schema guards it, so an interior
+// schema must not stand in for the request contract when one of these exists.
+const REQUEST_READ_RE =
+  /const\s*\{[^}]*\}\s*=\s*(?:await\s+)?(?:req|request)\.(?:body|query|json\s*\(\s*\))/
+
+function hasRequestRead(handlerBodyText: string): boolean {
+  return REQUEST_READ_RE.test(handlerBodyText)
 }
 
 // A single scratch, in-memory project reused across calls to re-parse handler
@@ -289,11 +311,37 @@ export function extractInputs(
   const used = [...handlerBodyText.matchAll(/\b(\w+)\.(?:safeParse|parse)\(/g)].map((m) => m[1])
   const result: InputField[] = []
   const names = new Set<string>()
+
+  const inlineSites = inlineZodParseSites(handlerBodyText)
+  const wrapperSites = wrapperSchemaSites(handlerBodyText, sourceFile)
+
+  // Does ANY site in this handler parse the request itself — a named or inline
+  // schema whose parse argument traces to the request body/query, a wrapper that
+  // receives the request, or a bare `const {..} = req.body/req.query/req.json()`
+  // read? When one exists, an interior schema (one validating a derived/nested
+  // value) must NOT masquerade as the request contract: it is demoted so the
+  // request-parsing site — or the body/query fallback below — supplies the fields
+  // agents actually send. When NONE exists, the interior schema is the only signal
+  // there is, so it is kept exactly as before (never regress an interior-only app).
+  const namedRequestBound = used.some(
+    (n) => n !== 'JSON' && REQUEST_BOUND_ARG_RE.test(argsForParseCall(handlerBodyText, n)),
+  )
+  const inlineRequestBound = inlineSites.some((s) => REQUEST_BOUND_ARG_RE.test(s.argsText))
+  const requestParsingPresent =
+    namedRequestBound ||
+    inlineRequestBound ||
+    wrapperSites.length > 0 ||
+    hasRequestRead(handlerBodyText)
+
   for (const schemaName of used) {
     if (schemaName === 'JSON') continue
     const fields = resolveSchema(schemaName, sourceFile, 0, new Set())
     if (fields.length === 0) continue
-    const location = locationForParseCall(handlerBodyText, schemaName)
+    const argsText = argsForParseCall(handlerBodyText, schemaName)
+    // An interior schema (its parse argument is not the request) yields to any
+    // request-parsing site in the same handler and is skipped entirely here.
+    if (requestParsingPresent && !REQUEST_BOUND_ARG_RE.test(argsText)) continue
+    const location = locationFromArgsText(argsText)
     // Multi-schema handlers merge; the first declaration of a name wins.
     for (const f of fields) {
       if (names.has(f.name)) continue
@@ -305,7 +353,7 @@ export function extractInputs(
   // Inline schema literals passed straight to `.parse`/`.safeParse` (no named
   // declaration to resolve via `resolveSchema`): rank below named schemas,
   // above the text-only fallbacks below.
-  for (const { receiver, sf, argsText } of inlineZodParseSites(handlerBodyText)) {
+  for (const { receiver, sf, argsText } of inlineSites) {
     const fields = fieldsFromInitializer(receiver, sf, 0, new Set())
     if (fields.length === 0) continue
     const location = locationFromArgsText(argsText)
@@ -324,7 +372,7 @@ export function extractInputs(
   // text-only fallbacks. The wrapper hides query-vs-body, so a GET reads query
   // and every other method (or an unknown method) reads a body.
   const wrapperLocation: InputField['location'] = method === 'GET' ? 'query' : 'body'
-  for (const { fields, fnName } of wrapperSchemaSites(handlerBodyText, sourceFile)) {
+  for (const { fields, fnName } of wrapperSites) {
     let added = false
     for (const f of fields) {
       if (names.has(f.name)) continue

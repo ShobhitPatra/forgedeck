@@ -159,6 +159,54 @@ describe('extractInputs', () => {
       { name: 'age', type: 'number', required: false, location: 'body' },
     ])
   })
+  it('demotes an interior schema to the req.body destructure (papermark shape)', () => {
+    // A pages-api POST that destructures req.body for its real contract and, deeper
+    // in the handler, validates a *derived* nested object with a named schema. The
+    // interior schema must not claim the body — the request read wins.
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const WatermarkConfigSchema = z.object({
+        text: z.string(),
+        color: z.string(),
+        opacity: z.number(),
+      })
+      export default async function handler(req, res) {
+        const { targetId, linkType, teamId, ...rest } = req.body
+        if (rest.enableWatermark) {
+          const validation = WatermarkConfigSchema.safeParse(rest.watermarkConfig)
+          if (!validation.success) return res.status(400).end()
+        }
+        return res.json({ ok: true })
+      }
+    `)
+    const body = sf.getFunctions()[0].getBodyText()!
+    const fields = extractInputs(sf, body)
+    const names = fields.map((f) => f.name).sort()
+    expect(names).toEqual(['linkType', 'targetId', 'teamId'])
+    for (const decoy of ['text', 'color', 'opacity']) {
+      expect(names).not.toContain(decoy)
+    }
+    for (const f of fields) expect(f.location).toBe('body')
+  })
+  it('keeps an interior-only schema when no request-parsing site exists', () => {
+    // Inverse guard: the ONLY schema validates a derived value and nothing reads
+    // the request. The (sometimes-wrong) interior heuristic beats emitting nothing,
+    // so its fields are preserved exactly as before.
+    const sf = fileFrom(`
+      import { z } from 'zod'
+      const ConfigSchema = z.object({ text: z.string(), opacity: z.number() })
+      export default async function handler(req, res) {
+        const config = buildDefaultConfig()
+        ConfigSchema.parse(config)
+        return res.json({ ok: true })
+      }
+    `)
+    const body = sf.getFunctions()[0].getBodyText()!
+    expect(extractInputs(sf, body)).toEqual([
+      { name: 'text', type: 'string', required: true, location: 'body' },
+      { name: 'opacity', type: 'number', required: true, location: 'body' },
+    ])
+  })
   it('extracts bare req query destructuring', () => {
     const sf = fileFrom(`
       export default async function handler(req, res) {
