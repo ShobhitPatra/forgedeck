@@ -10,7 +10,7 @@ describe('toToolsManifest', () => {
 
   it('emits one tool per action with json schema inputs', () => {
     expect(manifest.app).toBe('mini-shop')
-    expect(manifest.tools).toHaveLength(5)
+    expect(manifest.tools).toHaveLength(7)
     const create = manifest.tools.find((t) => t.name === 'post_orders')!
     expect(create.inputSchema).toEqual({
       type: 'object',

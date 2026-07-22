@@ -17,8 +17,10 @@ describe('compile', () => {
       'get_products_by_id',
       'get_stats',
       'post_orders',
+      'post_widgets',
+      'put_widgets',
     ])
-    expect(ir.coverage.extracted).toBe(5)
+    expect(ir.coverage.extracted).toBe(7)
     expect(ir.coverage.skipped).toEqual([])
   })
 
