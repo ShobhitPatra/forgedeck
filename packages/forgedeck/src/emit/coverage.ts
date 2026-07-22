@@ -1,4 +1,4 @@
-import type { SemanticIR } from '../ir/types.js'
+import type { ScopeVerdict, SemanticIR } from '../ir/types.js'
 
 /**
  * The public-storefront summary folded into the INTERNAL bundle's coverage report,
@@ -14,10 +14,24 @@ export interface PublicCoverageInfo {
   unmatchedNamed: string[]
 }
 
+// The machine-honest fence, one line: IN/PARTIAL name the extracted share; OUT
+// additionally names the dominant gap buckets so the reader knows what fenced it.
+function renderScopeLine(verdict: ScopeVerdict): string {
+  const pct = Math.round(verdict.extractedRatio * 100)
+  if (verdict.status === 'out') {
+    const gaps = verdict.dominantSkipReasons.length
+      ? `; dominant gaps: ${verdict.dominantSkipReasons.join(', ')}`
+      : ''
+    return `SCOPE: OUT (${pct}% extracted${gaps})`
+  }
+  return `SCOPE: ${verdict.status.toUpperCase()} (${pct}% of surface extracted)`
+}
+
 export function renderCoverage(ir: SemanticIR, publicInfo?: PublicCoverageInfo): string {
   const byKind = (k: string) => ir.actions.filter((a) => a.kind === k).length
   const lines = [
     `forgedeck coverage for ${ir.app.name}`,
+    renderScopeLine(ir.coverage.verdict),
     `${ir.coverage.extracted} actions extracted (${byKind('route')} app router, ${byKind('pages-api')} pages api, ${byKind('server-action')} server actions), ${ir.coverage.skipped.length} skipped`,
     `${ir.entities.length} entities from prisma schema`,
     `auth: ${ir.actions.filter((a) => a.auth === 'required').length} required, ${ir.actions.filter((a) => a.auth === 'unknown').length} unknown, ${ir.actions.filter((a) => a.auth === 'none').length} none`,

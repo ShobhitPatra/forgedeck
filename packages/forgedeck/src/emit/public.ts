@@ -17,6 +17,7 @@
 
 import type { PublicConfig } from '../config/schema.js'
 import type { SemanticIR } from '../ir/types.js'
+import { computeScopeVerdict } from '../ir/verdict.js'
 
 export interface PublicPruneResult {
   /** The filtered IR the emitters regenerate the public bundle from. */
@@ -60,7 +61,15 @@ export function prunePublicIR(ir: SemanticIR, publicConfig: PublicConfig): Publi
     entities,
     actions,
     workflows,
-    coverage: { extracted: actions.length, skipped: [], environment: ir.coverage.environment },
+    coverage: {
+      extracted: actions.length,
+      skipped: [],
+      environment: ir.coverage.environment,
+      // The public bundle is its own artifact with its own surface — the verdict
+      // is recomputed over it (always 'in' since skipped is always empty here)
+      // rather than copied from the internal IR's verdict.
+      verdict: computeScopeVerdict(actions.length, []),
+    },
   }
   return { ir: prunedIR, namedMutations, unmatchedNamed, count: actions.length }
 }

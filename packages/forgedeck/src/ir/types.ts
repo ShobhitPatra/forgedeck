@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { computeScopeVerdict } from './verdict.js'
 
 export type Effect = 'read' | 'write' | 'irreversible'
 export type AuthRequirement = 'none' | 'required' | 'unknown'
@@ -51,6 +52,13 @@ export interface CoverageItem {
   file: string
   reason: string
 }
+// The machine-honest scope fence: derived purely from extraction coverage (never
+// from LLM inference), so it stays trustworthy even in --no-inference mode.
+export interface ScopeVerdict {
+  status: 'in' | 'partial' | 'out'
+  extractedRatio: number
+  dominantSkipReasons: string[]
+}
 export interface SemanticIR {
   app: { name: string; framework: Framework }
   entities: EntityIR[]
@@ -59,7 +67,12 @@ export interface SemanticIR {
   // `environment` is the resolved-environment line (e.g. `environment: base (via
   // default)`), present only when a config was loaded. Absent for config-less builds
   // so their coverage stays byte-identical.
-  coverage: { extracted: number; skipped: CoverageItem[]; environment?: string }
+  coverage: {
+    extracted: number
+    skipped: CoverageItem[]
+    environment?: string
+    verdict: ScopeVerdict
+  }
 }
 
 const inputField = z.object({
@@ -136,9 +149,26 @@ export const semanticIRSchema = z.object({
     extracted: z.number(),
     skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
     environment: z.string().optional(),
+    // Optional so IR shapes from before this field existed (e.g. `diff` re-validating
+    // a checkout of an older ref, or a hand-built fixture in a test) still parse —
+    // validateIR fills a computed verdict in below rather than throwing.
+    verdict: z
+      .object({
+        status: z.enum(['in', 'partial', 'out']),
+        extractedRatio: z.number(),
+        dominantSkipReasons: z.array(z.string()),
+      })
+      .optional(),
   }),
 }) as z.ZodType<SemanticIR>
 
 export function validateIR(ir: unknown): SemanticIR {
-  return semanticIRSchema.parse(ir)
+  const parsed = semanticIRSchema.parse(ir)
+  if (!parsed.coverage.verdict) {
+    parsed.coverage.verdict = computeScopeVerdict(
+      parsed.coverage.extracted,
+      parsed.coverage.skipped,
+    )
+  }
+  return parsed
 }
