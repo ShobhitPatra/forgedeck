@@ -104,7 +104,7 @@ Not supported yet: tRPC ([#72](https://github.com/ShobhitPatra/opdeck/issues/72)
 
 ## Status
 
-Early development, version 0.x, one maintainer. Interfaces will change. If you want to know when the first release lands, join the waitlist on the site.
+Early development, version 0.x, one maintainer. Interfaces will change. If you want to know when the first release lands, [join the waitlist](https://opdeckdev.vercel.app).
 
 ## License
 
