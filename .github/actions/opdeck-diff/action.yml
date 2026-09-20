@@ -1,0 +1,129 @@
+# opdeck semantic diff — composite Action (spec D3, addendum P4).
+#
+# WHAT: compiles the agent surface at the PR base ref and at the working tree,
+# structurally diffs the two SemanticIRs (`opdeck diff`), and surfaces the
+# result to the reviewer as ONE sticky PR comment, updated in place.
+#
+# WHY silent-by-default: credibility comes from speaking only when meaning
+# changed. An empty diff never spams a fresh comment; a previously-posted comment
+# is UPDATED to the honest "no semantic changes as of <sha>" state (never deleted
+# — a comment that vanishes is ambiguous; a comment that says "clean as of abc123"
+# is a verifiable record).
+#
+# TOKEN posture: GITHUB_TOKEN only (`pull-requests: write`). Fork PRs get a
+# read-only token, so they degrade to the job step summary — the comment path is
+# never even attempted on a fork.
+#
+# IN-REPO DOGFOOD: `diff-command` defaults to `pnpm exec tsx src/cli/index.ts`,
+# running THIS repo's CLI source directly against the hybrid-shop fixture. The
+# published `opdeck/action` (a launch item) will default this to
+# `npx opdeck` and drop the working-directory/project-dir fixture defaults.
+name: opdeck semantic diff
+description: Comment the semantic diff of the agent surface on a pull request.
+
+inputs:
+  base-sha:
+    description: Git ref to diff the working tree against (usually the PR base sha).
+    required: true
+  working-directory:
+    description: Directory the diff command runs in (holds the opdeck install).
+    required: false
+    default: packages/opdeck
+  project-dir:
+    description: Project to compile, relative to working-directory.
+    required: false
+    default: tests/fixtures/hybrid-shop
+  diff-command:
+    description: >-
+      Command that invokes the opdeck CLI. In-repo dogfood runs the TypeScript
+      source via tsx; the published action uses `npx opdeck`.
+    required: false
+    default: pnpm exec tsx src/cli/index.ts
+
+runs:
+  using: composite
+  steps:
+    # 1 — Compute the semantic diff to a markdown file. No `--check`: a diff is a
+    # report, never a gate (the main ci.yml stays the sole status gate). The CLI
+    # exits 0 on any diff content and writes NOTHING to --out for an empty diff.
+    - name: Compute semantic diff
+      id: diff
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        out="$(mktemp)"
+        ${{ inputs.diff-command }} diff \
+          --base "${{ inputs.base-sha }}" \
+          --format md \
+          --out "$out" \
+          "${{ inputs.project-dir }}"
+        echo "md-file=$out" >> "$GITHUB_OUTPUT"
+
+    # 2 — Upsert the sticky comment (or, on forks, the step summary). All comment
+    # mechanics live here per spec D3; the CLI stays transport-agnostic.
+    - name: Upsert opdeck comment
+      uses: actions/github-script@v7
+      env:
+        MD_FILE: ${{ steps.diff.outputs.md-file }}
+        BASE_SHA: ${{ inputs.base-sha }}
+      with:
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- opdeck-diff -->';
+          const shortSha = (process.env.BASE_SHA || '').slice(0, 7);
+
+          // Empty diff → the CLI wrote an empty (or absent) file.
+          const mdFile = process.env.MD_FILE;
+          const md = mdFile && fs.existsSync(mdFile)
+            ? fs.readFileSync(mdFile, 'utf8').trim()
+            : '';
+
+          const changeBody = `${marker}\n${md}`;
+          const emptyBody =
+            `${marker}\n### opdeck semantic diff\n\n` +
+            `_No semantic changes to the agent surface as of \`${shortSha}\`._`;
+
+          // Fork PRs carry a read-only GITHUB_TOKEN — the comment API would 403.
+          // Degrade to the job summary and never touch the PR conversation.
+          const isFork = Boolean(context.payload.pull_request?.head?.repo?.fork);
+          if (isFork) {
+            await core.summary
+              .addRaw(md || '### opdeck semantic diff\n\n_No semantic changes to the agent surface._')
+              .write();
+            core.info('Fork PR: wrote the semantic diff to the job summary (no PR comment).');
+            return;
+          }
+
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          const comments = await github.paginate(github.rest.issues.listComments, {
+            owner, repo, issue_number,
+          });
+          const existing = comments.find((c) => c.body && c.body.includes(marker));
+
+          if (!md) {
+            // Silent by default: only speak up if we already have a comment to keep
+            // honest. Update it to the current sha rather than deleting it.
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body: emptyBody,
+              });
+              core.info('No semantic changes: updated the sticky comment to the no-changes state.');
+            } else {
+              core.info('No semantic changes and no existing comment: staying silent.');
+            }
+            return;
+          }
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner, repo, comment_id: existing.id, body: changeBody,
+            });
+            core.info('Updated the sticky opdeck comment in place.');
+          } else {
+            await github.rest.issues.createComment({
+              owner, repo, issue_number, body: changeBody,
+            });
+            core.info('Created the sticky opdeck comment.');
+          }

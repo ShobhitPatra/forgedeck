@@ -6,7 +6,7 @@ import { source } from '@/lib/source'
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <RootProvider>
-      <DocsLayout tree={source.pageTree} nav={{ title: 'forgedeck' }}>
+      <DocsLayout tree={source.pageTree} nav={{ title: 'opdeck' }}>
         {children}
       </DocsLayout>
     </RootProvider>

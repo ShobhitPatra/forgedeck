@@ -1,5 +1,5 @@
 // Literal input and output: this handler (its two imports trimmed for display) was
-// compiled with `forgedeck build` and `tool` is the emitted tools.json entry,
+// compiled with `opdeck build` and `tool` is the emitted tools.json entry,
 // unedited, rendered in compact form. If the
 // compiler's output shape changes, recompile and paste; never hand-tune it.
 export const evidenceExample = {

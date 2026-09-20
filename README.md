@@ -1,65 +1,110 @@
-# forgedeck
+# opdeck
 
-**Compile your Next.js app into an MCP server.**
+**Make your Next.js app agent-ready.**
 
-forgedeck reads your routes, server actions, and schemas at build time and emits the contract agents need to operate your app: which actions exist, what inputs they take, which ones are safe to touch. Deterministic extraction — no LLM in the loop, nothing guessed.
+opdeck is a compiler. It reads your route handlers, server actions and schemas at build time and emits the MCP tools an AI agent needs to operate your app. Every mutation stays locked until you allow it by name. There is no LLM in the loop, so nothing is guessed and every build is reproducible.
 
-```bash
-npx forgedeck init
+## What goes in, what comes out
+
+This handler:
+
+```ts
+// app/api/orders/[id]/route.ts
+
+/**
+ * Cancel an order and delete its record.
+ * @agent effect irreversible
+ */
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth()
+  if (!session) return new Response(null, { status: 401 })
+  const { id } = await params
+  await db.order.delete({ where: { id } })
+  return new Response(null, { status: 204 })
+}
 ```
+
+compiles to this tool. The output below is the compiler's, unedited:
+
+```json
+{
+  "name": "delete_orders_by_id",
+  "description": "Cancel an order and delete its record.",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "id": { "type": "string" } },
+    "required": ["id"]
+  },
+  "kind": "route",
+  "method": "DELETE",
+  "path": "/api/orders/{id}",
+  "effect": "irreversible",
+  "auth": "required",
+  "enabled": false
+}
+```
+
+The name and input came from the route. The description came from your JSDoc. `auth: required` came from the session check. `enabled: false` is the default for anything that is not a read.
 
 ## What a build gives you
 
-- **`.agent/` bundle** — a readable Markdown tree describing every action your app exposes. Check it into your repo. Review it like code.
-- **A live MCP endpoint** — your app serves its own agent surface at `/api/mcp`. No separate server to deploy, nothing new to run.
-- **A coverage report** — see exactly what the compiler understood, with evidence for every claim it makes. If your app isn't supported yet, it says so plainly instead of emitting a thin surface.
+| Output           | What it is                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `.agent/` bundle | A Markdown tree and a `tools.json` describing every action your app exposes. Check it in and review it like code.                         |
+| MCP endpoint     | Your app serves its own agent surface at `/api/mcp`. No separate server to deploy.                                                        |
+| Coverage report  | What the compiler understood, with the evidence behind each claim, and a plain `SCOPE` verdict when your app is outside what it supports. |
 
-Because it runs in your build path, the agent surface is regenerated on every build — always in sync with your code.
-
-## How it works
-
-forgedeck reads your source the way the TypeScript compiler does — nothing runs, nothing is guessed. Two passes:
-
-1. **Derive.** It walks every route handler and server action and works out what each one is: its name, the inputs it expects (from your zod schemas and request handling), whether it reads or writes data, and what auth stands in front of it. Each conclusion is recorded with the evidence behind it.
-2. **Annotate.** Where the code alone can't express intent — a better description, a precondition worth stating — you add a JSDoc `@agent` comment next to the handler. Annotations always take precedence over derived facts.
-
-```
-Your app (Next.js)
-   ↓  derive     — routes, server actions, schemas, effects, auth
-   ↓  annotate   — @agent comments, only where you want to say more
-   ↓
-.agent/ bundle · MCP server · coverage report
-```
-
-## What you get
-
-| Surface               | How                                                                             |
-| --------------------- | ------------------------------------------------------------------------------- |
-| Build-time compile    | `withForgedeck()` Next.js plugin (never breaks your build) or `forgedeck build` |
-| In-app MCP endpoint   | `createForgedeckHandler()` — 3 lines in an App Router route                     |
-| Standalone server     | `forgedeck serve` (stdio or HTTP), official Docker sidecar image                |
-| Semantic diffs in PRs | GitHub Action posts an IR-level diff comment (silent when nothing changed)      |
-| Public storefront     | separate pruned bundle exposing only unauthenticated reads                      |
-| Scaffolding           | `forgedeck init`                                                                |
+The bundle is regenerated on every build, so it cannot drift from your code.
 
 ## Locked by default
 
-- Every action is labeled `read`, `write`, or `irreversible`. The label travels with the tool.
-- Mutations ship disabled. You enable them one by one, by exact name. No wildcards, ever.
-- Unconfigured endpoints return 404. Without a token, your agent surface is invisible.
-- Your app's own auth still runs on every request. forgedeck never bypasses it.
+- Every action is labeled `read`, `write` or `irreversible`. The label travels with the tool.
+- Mutations ship disabled. You enable them one at a time, by exact name, in `opdeck.config.ts`. There are no wildcards.
+- With no token configured, `/api/mcp` returns an empty 404. The surface is invisible until you turn it on.
+- Your app's own auth runs on every request. opdeck never bypasses it.
+- Code describes, config authorizes. Descriptions and inputs are metadata and never affect what is enabled.
 
-## What's supported
+## How it works
 
-Next.js apps built on route handlers (App Router or `pages/api`) and server actions. tRPC ([#72](https://github.com/ShobhitPatra/forgedeck/issues/72)) and headless backends ([#73](https://github.com/ShobhitPatra/forgedeck/issues/73)) are next — the compiler tells you honestly when your app is outside what it can handle today.
+opdeck reads your source the way the TypeScript compiler does. Nothing runs.
 
-## Measured, not promised
+1. **Derive.** It walks every route handler and server action and works out the name, the inputs (from your zod schemas and request handling), whether the action reads or writes, and what auth stands in front of it. Each conclusion is recorded with its evidence.
+2. **Annotate.** Where code alone cannot express intent, you add a JSDoc `@agent` tag next to the handler. Annotations always take precedence over derived facts, and an annotation can only make an effect stricter, never looser.
 
-forgedeck is developed against [OperateBench](https://github.com/operatebench/operatebench) — an open benchmark asking whether AI agents can operate real web apps. We built it and pre-registered the methodology before running it, and results publish however they land.
+## Try it
+
+opdeck is not on npm yet. Until the first release, run it from source against any Next.js app:
+
+```bash
+git clone https://github.com/ShobhitPatra/opdeck
+cd opdeck
+pnpm install
+pnpm -C packages/opdeck build
+node packages/opdeck/dist/cli/index.js build /path/to/your/next-app --out /tmp/agent
+```
+
+Read `/tmp/agent/coverage.txt` first. It tells you what was understood and what was skipped.
+
+## Surfaces
+
+| Surface               | How                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------ |
+| Build-time compile    | `withOpdeck()` Next.js plugin, which never breaks your build, or `opdeck build`      |
+| In-app MCP endpoint   | `createOpdeckHandler()`, three lines in an App Router route                          |
+| Standalone server     | `opdeck serve` over stdio or HTTP, with a Docker sidecar image                       |
+| Semantic diffs in PRs | A GitHub Action that comments an IR-level diff and stays silent when nothing changed |
+| Public surface        | A separate pruned bundle exposing only unauthenticated reads                         |
+| Setup                 | `opdeck init` writes the route, wraps `next.config`, and scaffolds the config        |
+
+## What is supported
+
+Next.js apps built on route handlers (App Router or `pages/api`) and server actions.
+
+Not supported yet: tRPC ([#72](https://github.com/ShobhitPatra/opdeck/issues/72)) and headless backends behind a Next.js storefront ([#73](https://github.com/ShobhitPatra/opdeck/issues/73)). When your app is out of scope the compiler says so in the coverage report instead of emitting a thin surface.
 
 ## Status
 
-Early development. Version 0.x.
+Early development, version 0.x, one maintainer. Interfaces will change. If you want to know when the first release lands, join the waitlist on the site.
 
 ## License
 

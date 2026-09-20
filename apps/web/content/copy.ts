@@ -1,5 +1,5 @@
 const name = 'opdeck'
-const github = 'https://github.com/ShobhitPatra/forgedeck'
+const github = 'https://github.com/ShobhitPatra/opdeck'
 
 export const copy = {
   name,

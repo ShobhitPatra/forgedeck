@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import pkg from '../../../packages/forgedeck/package.json'
+import pkg from '../../../packages/opdeck/package.json'
 import { version } from '../lib/version'
 
 describe('nav version single-sourcing', () => {
-  it('mirrors the forgedeck package version, not a hardcoded string', () => {
+  it('mirrors the opdeck package version, not a hardcoded string', () => {
     expect(version).toBe(pkg.version)
   })
 
