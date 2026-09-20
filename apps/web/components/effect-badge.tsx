@@ -14,5 +14,5 @@ export function EffectBadge({ effect }: { effect: keyof typeof COLORS }) {
 // page is reserved for the effect triad, so markers that are not effect
 // classifications (locks, auth) render here without borrowing that meaning.
 export function NeutralMarker({ label }: { label: string }) {
-  return <span className={`${BADGE_CHROME} text-graphite border-graphite`}>{label}</span>
+  return <span className={`${BADGE_CHROME} text-muted border-muted`}>{label}</span>
 }

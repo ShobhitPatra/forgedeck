@@ -1,45 +1,35 @@
-import { EffectBadge, NeutralMarker } from '@/components/effect-badge'
-import { Layer } from '@/components/layer'
+import { Ledger, LedgerRow } from '@/components/ledger'
 import { copy } from '@/content/copy'
+
+const EFFECT_CLASS = {
+  read: 'text-read',
+  write: 'text-write',
+  irreversible: 'text-irreversible',
+} as const
 
 type SafetyItem = (typeof copy.safety.items)[number]
 
-function SafetyMarker({ item }: { item: SafetyItem }) {
-  if ('effects' in item) {
-    return (
-      <div className="flex shrink-0 flex-col items-start gap-1">
-        {item.effects.map((effect) => (
-          <EffectBadge key={effect} effect={effect} />
-        ))}
-      </div>
-    )
-  }
-  if ('marker' in item) {
-    return (
-      <div className="shrink-0">
-        <NeutralMarker label={item.marker} />
-      </div>
-    )
-  }
+function title(item: SafetyItem) {
+  if ('title' in item) return item.title
   return (
-    <div className="shrink-0">
-      <EffectBadge effect={item.effect} />
-    </div>
+    <span className="flex flex-wrap gap-x-3 font-mono text-[13px] font-normal">
+      {item.effects.map((effect) => (
+        <span key={effect} className={EFFECT_CLASS[effect]}>
+          {effect}
+        </span>
+      ))}
+    </span>
   )
 }
 
 export function Safety() {
   return (
-    <Layer>
-      <h2 className="font-mono text-2xl font-bold">{copy.safety.heading}</h2>
-      <ul className="mt-8 grid gap-6 sm:grid-cols-2">
-        {copy.safety.items.map((item) => (
-          <li key={item.body} className="flex items-start gap-3">
-            <SafetyMarker item={item} />
-            <p className="text-sm text-graphite">{item.body}</p>
-          </li>
-        ))}
-      </ul>
-    </Layer>
+    <Ledger heading={copy.safety.heading}>
+      {copy.safety.items.map((item) => (
+        <LedgerRow key={item.body} title={title(item)}>
+          {item.body}
+        </LedgerRow>
+      ))}
+    </Ledger>
   )
 }

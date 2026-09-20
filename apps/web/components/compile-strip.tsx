@@ -41,21 +41,19 @@ export function CompileStrip() {
 
   return (
     <div ref={ref} className="grid gap-6 lg:grid-cols-2">
-      <div className="min-w-0 border border-hairline">
-        <p className="border-b border-hairline px-4 py-2 font-mono text-xs text-graphite">
+      <div className="min-w-0 border border-line">
+        <p className="border-b border-line px-4 py-2 font-mono text-xs text-muted">
           {ex.sourcePath}
         </p>
         <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed">{ex.source}</pre>
       </div>
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="overflow-x-auto border border-hairline px-4 py-3 font-mono text-xs">
+        <div className="overflow-x-auto border border-line px-4 py-3 font-mono text-xs">
           <p className={stage >= 1 ? '' : 'invisible'}>$ {ex.terminalCommand}</p>
-          <p className={`mt-1 text-graphite ${stage >= 1 ? '' : 'invisible'}`}>
-            {ex.terminalOutput}
-          </p>
+          <p className={`mt-1 text-muted ${stage >= 1 ? '' : 'invisible'}`}>{ex.terminalOutput}</p>
         </div>
         <div
-          className={`border border-hairline p-4 transition-opacity duration-300 ${
+          className={`border border-line p-4 transition-opacity duration-300 ${
             stage >= 2 ? 'opacity-100' : 'opacity-0'
           }`}
           aria-hidden={stage < 2}
@@ -66,10 +64,10 @@ export function CompileStrip() {
               <EffectBadge effect={ex.tool.effect} />
             </span>
           </div>
-          <p className="mt-1 font-mono text-xs text-graphite">{ex.tool.route}</p>
+          <p className="mt-1 font-mono text-xs text-muted">{ex.tool.route}</p>
           <p className="mt-3 text-sm">{ex.tool.description}</p>
-          <p className="mt-3 font-mono text-xs text-graphite">inputs: {ex.tool.inputs}</p>
-          <p className="mt-1 font-mono text-xs text-graphite">evidence: {ex.tool.evidence}</p>
+          <p className="mt-3 font-mono text-xs text-muted">inputs: {ex.tool.inputs}</p>
+          <p className="mt-1 font-mono text-xs text-muted">evidence: {ex.tool.evidence}</p>
         </div>
       </div>
     </div>

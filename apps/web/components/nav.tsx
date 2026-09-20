@@ -1,18 +1,17 @@
+import { Mark } from '@/components/mark'
 import { copy } from '@/content/copy'
-import { version } from '@/lib/version'
 
 export function Nav() {
   return (
-    <nav className="flex items-center justify-between px-6 py-5 sm:px-10">
-      <span className="font-mono text-sm font-bold">{copy.nav.wordmark}</span>
-      <div className="flex items-center gap-6 font-mono text-xs">
-        <a href="/docs" className="hover:underline">
-          {copy.nav.docs}
-        </a>
-        <a href="https://github.com/ShobhitPatra/forgedeck" className="hover:underline">
+    <nav className="border-b border-line">
+      <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-4 sm:px-10">
+        <span className="flex items-center gap-2 font-semibold tracking-[-0.04em]">
+          <Mark />
+          {copy.name}
+        </span>
+        <a href={copy.github} className="text-sm text-muted hover:text-foreground">
           {copy.nav.github}
         </a>
-        <span className="text-graphite">v{version}</span>
       </div>
     </nav>
   )
