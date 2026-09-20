@@ -4,22 +4,23 @@ import { ImageResponse } from 'next/og'
 import { copy } from '@/content/copy'
 
 // Static OG card, rendered once at build time. No network and no font lookup at
-// request time: the JetBrains Mono faces are vendored in apps/web/assets/fonts
-// (OFL) and read off disk during prerender. JetBrains Mono stands in for the
-// site's Martian Mono, which next/font ships only as woff2 (satori can't parse).
+// request time: the Geist faces are vendored in apps/web/assets/fonts (OFL) as
+// TTF, because next/font ships only woff2 and satori can't parse that.
 
-export const alt = 'forgedeck — compile your Next.js app into an MCP server'
+export const alt = `${copy.name}: ${copy.hero.h1}`
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
-// Design tokens, mirrored from app/globals.css (light theme).
-const paper = '#f8f9f7'
-const ink = '#16181a'
-const hairline = '#e3e6e2'
-const triad = [
-  { label: 'read', color: '#0e7c6b' },
-  { label: 'write', color: '#a16207' },
-  { label: 'irreversible', color: '#b42318' },
+// Design tokens, mirrored from app/globals.css (dark theme).
+const background = '#000000'
+const foreground = '#ededed'
+const muted = '#a1a1a1'
+const line = '#2a2a2a'
+// The permission ladder, widest to narrowest.
+const ladder = [
+  { label: 'read', color: '#52a8ff', width: 64 },
+  { label: 'write', color: '#f5a623', width: 44 },
+  { label: 'irreversible', color: '#ff6166', width: 24 },
 ]
 
 const font = (name: string) => readFileSync(join(process.cwd(), 'assets/fonts', name))
@@ -33,76 +34,61 @@ export default function OpengraphImage() {
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        background: paper,
-        color: ink,
-        fontFamily: 'JetBrains Mono',
+        background,
+        color: foreground,
+        fontFamily: 'Geist',
         padding: '72px 80px',
       }}
     >
-      {/* Wordmark over a hairline rule, echoing the site's nav chrome */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-        <div style={{ display: 'flex', fontSize: 30, fontWeight: 700, letterSpacing: '-0.01em' }}>
-          {copy.nav.wordmark}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: 40 }}>
+            {ladder.map((bar) => (
+              <div
+                key={bar.label}
+                style={{
+                  display: 'flex',
+                  height: 8,
+                  width: (bar.width / 64) * 40,
+                  background: bar.color,
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ display: 'flex', fontSize: 34, fontWeight: 600, letterSpacing: '-0.04em' }}>
+            {copy.name}
+          </div>
         </div>
-        <div style={{ display: 'flex', height: 1, background: hairline }} />
+        <div style={{ display: 'flex', height: 1, background: line }} />
       </div>
 
-      {/* Headline */}
       <div
         style={{
           display: 'flex',
-          fontSize: 62,
-          fontWeight: 700,
-          lineHeight: 1.1,
-          letterSpacing: '-0.02em',
-          maxWidth: 900,
+          fontSize: 84,
+          fontWeight: 600,
+          lineHeight: 1.04,
+          letterSpacing: '-0.045em',
+          maxWidth: 960,
         }}
       >
         {copy.hero.h1}
       </div>
 
-      {/* Chrome row: terminal command + effect triad, matching the site's hairline chrome */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            background: ink,
-            color: paper,
-            border: `1px solid ${ink}`,
-            padding: '14px 22px',
-            fontSize: 26,
-          }}
-        >
-          <span>$</span>
-          <span>{copy.hero.command}</span>
-          <span
-            style={{
-              display: 'flex',
-              borderLeft: `1px solid ${paper}`,
-              paddingLeft: 16,
-              fontSize: 20,
-              opacity: 0.7,
-            }}
-          >
-            copy
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', gap: 12 }}>
-          {triad.map((t) => (
-            <span
-              key={t.label}
-              style={{
-                display: 'flex',
-                border: `1px solid ${t.color}`,
-                color: t.color,
-                padding: '6px 12px',
-                fontSize: 22,
-              }}
-            >
-              {t.label}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: 26,
+          color: muted,
+        }}
+      >
+        <div style={{ display: 'flex' }}>Every mutation locked until you allow it by name.</div>
+        <div style={{ display: 'flex', gap: 24 }}>
+          {ladder.map((bar) => (
+            <span key={bar.label} style={{ display: 'flex', color: bar.color }}>
+              {bar.label}
             </span>
           ))}
         </div>
@@ -111,18 +97,8 @@ export default function OpengraphImage() {
     {
       ...size,
       fonts: [
-        {
-          name: 'JetBrains Mono',
-          data: font('JetBrainsMono-Regular.otf'),
-          weight: 400,
-          style: 'normal',
-        },
-        {
-          name: 'JetBrains Mono',
-          data: font('JetBrainsMono-Bold.otf'),
-          weight: 700,
-          style: 'normal',
-        },
+        { name: 'Geist', data: font('Geist-Regular.ttf'), weight: 400, style: 'normal' },
+        { name: 'Geist', data: font('Geist-SemiBold.ttf'), weight: 600, style: 'normal' },
       ],
     },
   )

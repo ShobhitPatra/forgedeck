@@ -1,12 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="forgedeck">
-  <rect width="32" height="32" rx="6" fill="#16181a" />
-  <text
-    x="16"
-    y="24"
-    text-anchor="middle"
-    font-family="'Martian Mono', ui-monospace, SFMono-Regular, monospace"
-    font-size="24"
-    font-weight="700"
-    fill="#f8f9f7"
-  >f</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="opdeck">
+  <rect width="32" height="32" rx="6" fill="#000000" />
+  <rect x="6" y="7" width="20" height="4.5" fill="#52a8ff" />
+  <rect x="6" y="13.75" width="13.75" height="4.5" fill="#f5a623" />
+  <rect x="6" y="20.5" width="7.5" height="4.5" fill="#ff6166" />
 </svg>

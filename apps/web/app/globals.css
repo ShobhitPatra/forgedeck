@@ -1,51 +1,47 @@
 @import 'tailwindcss';
 
+/* Follows the system theme, no switcher. Every colour is a light-dark() pair. */
 :root {
-  --paper: #f8f9f7;
-  --ink: #16181a;
-  --graphite: #5c6166;
-  --hairline: #e3e6e2;
-  --effect-read: #0e7c6b;
-  --effect-write: #a16207;
-  --effect-irreversible: #b42318;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #131514;
-    --ink: #edefec;
-    --graphite: #9aa19c;
-    --hairline: #262a28;
-    --effect-read: #34b39c;
-    --effect-write: #d9a13b;
-    --effect-irreversible: #e0685c;
-  }
+  color-scheme: light dark;
+  --background: light-dark(#ffffff, #000000);
+  --surface: light-dark(#fafafa, #0a0a0a);
+  --foreground: light-dark(#171717, #ededed);
+  --muted: light-dark(#666666, #a1a1a1);
+  --faint: light-dark(#8f8f8f, #707070);
+  --line: light-dark(#eaeaea, #2a2a2a);
+  /* Colour is reserved for the effect triad and the mark. */
+  --effect-read: light-dark(#0060d1, #52a8ff);
+  --effect-write: light-dark(#a35200, #f5a623);
+  --effect-irreversible: light-dark(#cb2a2f, #ff6166);
 }
 
 @theme inline {
-  --color-paper: var(--paper);
-  --color-ink: var(--ink);
-  --color-graphite: var(--graphite);
-  --color-hairline: var(--hairline);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
   --color-read: var(--effect-read);
   --color-write: var(--effect-write);
   --color-irreversible: var(--effect-irreversible);
-  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-martian), ui-monospace, monospace;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 body {
-  background: var(--paper);
-  color: var(--ink);
+  background: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--foreground);
+  color: var(--background);
 }
 
 :focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
 }

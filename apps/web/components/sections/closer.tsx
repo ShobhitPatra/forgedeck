@@ -1,17 +1,15 @@
-import { CopyCommand } from '@/components/copy-command'
-import { Layer } from '@/components/layer'
+import { WaitlistForm } from '@/components/waitlist-form'
 import { copy } from '@/content/copy'
 
 export function Closer() {
   return (
-    <Layer className="pb-28 text-center">
-      <h2 className="font-mono text-3xl font-bold">{copy.closer.heading}</h2>
-      <div className="mt-8 flex justify-center">
-        <CopyCommand command={copy.closer.command} />
+    <section>
+      <div className="mx-auto flex max-w-[1200px] flex-col gap-6 px-6 py-20 sm:px-10">
+        <h2 className="text-3xl leading-9 font-semibold tracking-[-0.04em] text-balance sm:text-4xl sm:leading-[44px]">
+          {copy.closer.heading}
+        </h2>
+        <WaitlistForm />
       </div>
-      <a href="/docs" className="mt-6 inline-block font-mono text-sm underline hover:text-graphite">
-        {copy.closer.quickstart} →
-      </a>
-    </Layer>
+    </section>
   )
 }
