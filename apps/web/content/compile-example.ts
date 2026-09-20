@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 }`,
   terminalCommand: 'next build',
   terminalOutput:
-    'forgedeck ✓ 1 actions (1 reads enabled, 0 mutations locked) · 0 entities · 0 warnings → .agent/',
+    'opdeck ✓ 1 actions (1 reads enabled, 0 mutations locked) · 0 entities · 0 warnings → .agent/',
   tool: {
     name: 'get_products',
     effect: 'read' as const,

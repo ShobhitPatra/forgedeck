@@ -1,0 +1,37 @@
+# Dogfood: opdeck reviews its own agent surface.
+#
+# Every PR that touches the hybrid-shop fixture recompiles it before/after and
+# posts the semantic diff as a sticky comment — so each opdeck PR demonstrates
+# the product to anyone watching, and drift in the fixture is visible where the
+# review happens.
+#
+# This workflow NEVER fails the PR on diff content: it does not pass `--check`,
+# and `opdeck diff` exits 0 for any diff. The main ci.yml remains the sole gate.
+name: opdeck diff
+
+on:
+  pull_request:
+    paths:
+      - 'packages/opdeck/tests/fixtures/**'
+
+jobs:
+  opdeck-diff:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the base sha is resolvable for `git worktree add`.
+          fetch-depth: 0
+      # pnpm setup mirrors ci.yml so the fixture compiles with the same toolchain.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/opdeck-diff
+        with:
+          base-sha: ${{ github.event.pull_request.base.sha }}
